@@ -26,8 +26,6 @@ function health.check()
   h.start("nsm")
 
   report("nsm", vim.fn.exepath("nsm"), "Install the nsm CLI and put it on PATH.", "error")
-  report("kitten", vim.fn.exepath("kitten"), "Install kitty to open sessions in tabs and overlays.", "warn")
-  report("KITTY_LISTEN_ON", vim.env.KITTY_LISTEN_ON, "Session switching needs a kitty window with remote control.", "warn")
 end
 
 return health
