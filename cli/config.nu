@@ -2,6 +2,7 @@ use lib.nu [fail get-display-path]
 
 const DEFAULT_ICONS = {
     running: '🟢'
+    busy: '🟡'
     stored: '⚫'
     directory: '📁'
 }

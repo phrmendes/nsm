@@ -1,6 +1,6 @@
 use config.nu [get-config]
 use lib.nu [fail get-project-path warn]
-use server.nu [is-alive]
+use server.nu [get-state]
 use store.nu [list-recent-sessions]
 
 const ZOXIDE_LIMIT = 5
@@ -146,8 +146,8 @@ export def list-projects []: nothing -> list<string> {
 def list-session-rows [exclude: string, options: record]: nothing -> table {
     list-recent-sessions
     | where name != $exclude
-    | par-each {|session| $session | insert alive (is-alive $session.socket) }
-    | insert source {|session| if $session.alive { 'running' } else { 'stored' } }
+    | par-each {|session| $session | insert state (get-state $session.socket) }
+    | insert source {|session| if $session.state == 'stopped' { 'stored' } else { $session.state } }
     | insert label {|session| get-label $session $options }
     | select label name path source
 }

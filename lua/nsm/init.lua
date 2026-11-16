@@ -31,7 +31,7 @@
 --- >
 ---   {
 ---     projects: ["~/Projects", "/mnt/external/projects"]
----     icons: { running: "🟢", stored: "⚫", directory: "📁" }
+---     icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
 ---     restore: { file: "Session.vim" }
 ---   }
 --- <
@@ -56,7 +56,7 @@
 --- - `label`: the text that the picker shows.
 --- - `name`: the session name, or null for a directory.
 --- - `path`: the directory.
---- - `source`: `running`, `stored`, `directory`, or `zoxide`.
+--- - `source`: `running`, `busy`, `stored`, `directory`, or `zoxide`.
 ---
 --- Requirements ~
 --- *nsm-requirements*

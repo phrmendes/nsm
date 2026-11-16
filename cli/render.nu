@@ -29,7 +29,11 @@ export def format-sessions [sessions: table]: nothing -> string {
     | each {|session|
         {
             name: $session.name
-            status: (if $session.running { '●' } else { '○' })
+            status: (match $session.state {
+                running => '●'
+                busy => '◐'
+                _ => '○'
+            })
             path: (get-display-path $session.path)
             attached: (if $session.attached_at == null { 'never' } else { $session.attached_at | into datetime | date humanize })
         }

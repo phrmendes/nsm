@@ -6,6 +6,7 @@ use target.nu [resolve-target]
 const POLL_ATTEMPTS = 50
 const POLL_INTERVAL = 100ms
 const REMOTE_TIMEOUT = 2
+const PROBE_TIMEOUT = 1
 
 # Start a detached server for a session, in the directory of the project.
 def start-server [session: record]: nothing -> nothing {
@@ -29,9 +30,9 @@ def start-server [session: record]: nothing -> nothing {
 }
 
 # Run a remote expression on a server and return the completed command.
-# A server that does not answer within a few seconds counts as unreachable.
-def remote-expr [socket: path, expression: string]: nothing -> record {
-    timeout $REMOTE_TIMEOUT nvim --clean --server $socket --remote-expr $expression | complete
+# A server that does not answer in time counts as unreachable.
+def remote-expr [socket: path, expression: string, --timeout: int = $REMOTE_TIMEOUT]: nothing -> record {
+    timeout $timeout nvim --clean --server $socket --remote-expr $expression | complete
 }
 
 # Open a session in the current terminal. The UI closes on `:detach`.
@@ -42,13 +43,29 @@ def open-session [session: record]: nothing -> nothing {
     nvim --server $session.socket --remote-ui
 }
 
-# Check whether a server answers on a socket.
-export def is-alive [socket: path]: nothing -> bool {
+# Return the state of a server: `stopped` when it does not answer, `busy` when it answers
+# too late, and `running` when it answers in time.
+export def get-state [socket: path]: nothing -> string {
     if not ($socket | path exists) {
-        return false
+        return 'stopped'
     }
 
-    (remote-expr $socket '1').exit_code == 0
+    let result = remote-expr $socket '1' --timeout $PROBE_TIMEOUT
+
+    if $result.exit_code == 0 {
+        return 'running'
+    }
+
+    if $result.exit_code == 124 {
+        return 'busy'
+    }
+
+    'stopped'
+}
+
+# Check whether a server answers on a socket. A busy server counts as alive.
+export def is-alive [socket: path]: nothing -> bool {
+    (get-state $socket) != 'stopped'
 }
 
 # Wait until a check passes, for at most five seconds.

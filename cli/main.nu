@@ -4,6 +4,7 @@ use render.nu [format-sessions]
 use server.nu [
     connect-session
     get-dirty-sessions
+    get-state
     has-unsaved-changes
     is-alive
     start-session
@@ -142,7 +143,7 @@ def "main new" [
 def "main list" []: nothing -> nothing {
     run-command {
         let sessions = list-sessions
-        | insert running {|session| is-alive $session.socket }
+        | insert state {|session| get-state $session.socket }
 
         print (format-sessions $sessions)
     }
