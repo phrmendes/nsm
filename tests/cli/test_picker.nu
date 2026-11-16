@@ -251,3 +251,38 @@ def "test zoxide-rows-skip-sessions-and-project-roots" []: nothing -> nothing {
         }
     }
 }
+
+# Verify that a session whose server answers too late gets the busy icon.
+def "test busy-sessions-get-the-busy-icon" []: nothing -> nothing {
+    in-root {|root|
+        let bin = $root | path join bin
+        let project = $root | path join project
+        make-dir $bin
+        make-dir $project
+        let bash = get-bash
+        write-text ($bin | path join nvim) ([
+            $"#!($bash)"
+            'sleep 5'
+        ] | str join (char nl))
+        chmod +x ($bin | path join nvim)
+
+        with-env {
+            XDG_STATE_HOME: $root
+            HOME: $root
+            PATH: ([$bin] | append $env.PATH | str join (char esep))
+        } {
+            create-store
+            save-session slow $project
+            '' | save --force (get-session slow).socket
+
+            let rows = list-candidates --sessions
+
+            assert equal ($rows | where name == slow | first) {
+                label: '🟡 slow  ~/project'
+                name: slow
+                path: $project
+                source: busy
+            } 'a server that answers too late is busy'
+        }
+    }
+}

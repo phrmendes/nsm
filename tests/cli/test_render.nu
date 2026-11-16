@@ -9,7 +9,7 @@ def get-sessions []: nothing -> table {
     [
         {
             name: data-proxy.refactor-implement-projects
-            running: true
+            state: running
             path: /mnt/external/projects/iplanrio/data-proxy.refactor-implement-projects
             attached_at: null
         }
@@ -36,4 +36,34 @@ def "test format-sessions-respects-narrow-columns" []: nothing -> nothing {
 
     assert ($narrow > $wide) 'a narrow width wraps the columns'
     assert ($narrow_has_path == false) 'the path is split across lines'
+}
+
+# Verify that the status column tells the three states apart.
+def "test format-sessions-marks-every-state" []: nothing -> nothing {
+    let sessions = [
+        {
+            name: run
+            state: running
+            path: /tmp/run
+            attached_at: null
+        }
+        {
+            name: busy
+            state: busy
+            path: /tmp/busy
+            attached_at: null
+        }
+        {
+            name: off
+            state: stopped
+            path: /tmp/off
+            attached_at: null
+        }
+    ]
+
+    let text = with-env {COLUMNS: 200} { format-sessions $sessions }
+
+    assert ($text | str contains '●') 'a running session has a filled circle'
+    assert ($text | str contains '◐') 'a busy session has a half circle'
+    assert ($text | str contains '○') 'a stopped session has an open circle'
 }

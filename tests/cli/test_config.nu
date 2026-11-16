@@ -15,6 +15,7 @@ def "test get-config-defaults-without-a-file" []: nothing -> nothing {
                 projects: []
                 icons: {
                     running: '🟢'
+                    busy: '🟡'
                     stored: '⚫'
                     directory: '📁'
                 }

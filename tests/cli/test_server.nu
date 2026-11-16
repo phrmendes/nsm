@@ -2,6 +2,7 @@ use std/assert
 use ./fixtures.nu [
     error-message
     finally
+    get-bash
     in-root
     in-store
     make-dir
@@ -16,7 +17,7 @@ use ./fixtures.nu [
     with-shim-env
     write-text
 ]
-use ../../cli/server.nu [get-restore-args has-unsaved-changes is-alive wait-until]
+use ../../cli/server.nu [get-restore-args get-state has-unsaved-changes is-alive wait-until]
 use ../../cli/store.nu [create-store get-session list-sessions save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -237,5 +238,50 @@ def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> n
         let empty = nu --no-config-file cli/main.nu kill --all | complete
         assert equal $empty.exit_code 0 $empty.stderr
         assert (((($empty.stderr | ansi strip) =~ '\[W\]') and (($empty.stderr | ansi strip) =~ 'No sessions.'))) $empty.stderr
+    }
+}
+
+# Verify that a server which answers too late counts as busy, not as stopped.
+def "test get-state-tells-busy-from-stopped" []: nothing -> nothing {
+    in-root {|root|
+        let log = $root | path join calls.log
+        let project = $root | path join project
+        let busy_socket = $root | path join busy.sock
+        let running_socket = $root | path join running.sock
+        let missing_socket = $root | path join missing.sock
+        let bin = make-shims $root
+        make-dir $project
+
+        with-shim-env $root $bin {
+            create-store
+            save-session busy $project
+            save-session running $project
+            set-socket $root busy $busy_socket
+            set-socket $root running $running_socket
+            '' | save --force $busy_socket
+            '' | save --force $running_socket
+            assert equal (get-state $missing_socket) 'stopped' 'a socket that does not exist is stopped'
+
+            # The fast shim answers at once, so its session is running.
+            assert equal (get-state $running_socket) 'running' 'a server that answers is running'
+
+            # The slow shim outlives the probe, so its session is busy, never stopped.
+            let bash = get-bash
+            write-text ($bin | path join nvim) ([
+                $"#!($bash)"
+                'sleep 5'
+            ] | str join (char nl))
+            chmod +x ($bin | path join nvim)
+
+            assert equal (get-state $busy_socket) 'busy' 'a server that answers too late is busy'
+            assert (is-alive $busy_socket) 'a busy server counts as alive'
+
+            let result = nu --no-config-file cli/main.nu start busy | complete
+
+            assert equal $result.exit_code 0 $result.stderr
+            assert equal ($result.stdout | str trim) $busy_socket 'a busy server keeps its socket'
+            let starts = read-file $log | lines | where {|line| $line =~ '--headless' }
+            assert equal ($starts | length) 0 'a busy server is not started again'
+        }
     }
 }
