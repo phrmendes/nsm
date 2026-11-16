@@ -27,9 +27,6 @@ export def make-shim [path: path, --interpreter: string = '/usr/bin/env bash']: 
     let script = [
         $"#!($interpreter)"
         'printf \'%s\\n\' "$*" >> "$SHIM_LOG"'
-        'case "$*" in'
-        '  *focus-tab*) exit "${SHIM_FOCUS_EXIT:-0}" ;;'
-        'esac'
         'exit 0'
     ] | str join (char nl)
 

@@ -38,68 +38,141 @@ end
 
 T["switch"] = test.new_set()
 
-T["switch"]["opens the overlay with the current session"] = function()
+T["switch"]["starts the chosen session and attaches the current UI"] = function()
   local calls = child.lua([[
     local captured = {}
+    local rows = '[{"label":"🟢 work  ~/work","name":"work","path":"/home/ana/work","source":"running"}]'
 
-    vim.system = function(command, opts) table.insert(captured, { command = command, detach = opts.detach }) end
-    vim.env.KITTY_LISTEN_ON = "unix:/tmp/kitty"
-    vim.env.NSM_SESSION = "demo"
+    vim.system = function(command)
+      table.insert(captured, { command = command })
 
-    require("nsm").switch()
+      return {
+        code = 0,
+        stdout = command[2] == "pick" and rows or "/state/nsm/work.sock\n",
+        stderr = "",
+        wait = function(self) return self end,
+      }
+    end
+
+    vim.ui.select = function(items, opts, on_choice)
+      table.insert(captured, { prompt = opts.prompt, labels = vim.tbl_map(function(item) return item.label end, items) })
+      on_choice(items[1], 1)
+    end
+
+    local nsm = require("nsm")
+    nsm.connect = function(address) table.insert(captured, { connect = address }) end
+    nsm.switch()
 
     return captured
   ]])
 
   eq(calls, {
-    {
-      command = {
-        "kitten",
-        "@",
-        "launch",
-        "--type=overlay",
-        "--cwd=current",
-        "--env",
-        "NSM_SESSION=demo",
-        "nsm",
-        "switch",
-      },
-      detach = true,
-    },
+    { command = { "nsm", "pick" } },
+    { prompt = "nsm> ", labels = { "🟢 work  ~/work" } },
+    { command = { "nsm", "start", "work" } },
+    { connect = "/state/nsm/work.sock" },
   })
 end
 
-T["switch"]["omits the session env when none is set"] = function()
+T["switch"]["starts a directory that has no session yet"] = function()
   local calls = child.lua([[
     local captured = {}
+    local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"}]'
 
-    vim.system = function(command) table.insert(captured, command) end
-    vim.env.KITTY_LISTEN_ON = "unix:/tmp/kitty"
-    vim.env.NSM_SESSION = nil
+    vim.system = function(command)
+      table.insert(captured, command)
 
-    require("nsm").switch()
+      return {
+        code = 0,
+        stdout = command[2] == "pick" and rows or "/state/nsm/project.sock\n",
+        stderr = "",
+        wait = function(self) return self end,
+      }
+    end
+
+    vim.ui.select = function(items, _, on_choice) on_choice(items[1], 1) end
+
+    local nsm = require("nsm")
+    nsm.connect = function() end
+    nsm.switch()
 
     return captured
   ]])
 
-  eq(calls, { { "kitten", "@", "launch", "--type=overlay", "--cwd=current", "nsm", "switch" } })
+  eq(calls, {
+    { "nsm", "pick" },
+    { "nsm", "start", "/home/ana/project" },
+  })
 end
 
-T["switch"]["warns and does nothing outside kitty"] = function()
-  local result = child.lua([[
-    local calls, notified = 0, nil
+T["switch"]["cancelling the picker starts and connects nothing"] = function()
+  local calls = child.lua([[
+    local captured = {}
 
-    vim.system = function() calls = calls + 1 end
-    vim.notify = function(message, level) notified = { message = message, level = level } end
-    vim.env.KITTY_LISTEN_ON = nil
+    vim.system = function(command)
+      table.insert(captured, command)
 
-    require("nsm").switch()
+      return { code = 0, stdout = "[{\"label\":\"🟢 work\",\"name\":\"work\",\"path\":\"/w\"}]", stderr = "", wait = function(self) return self end }
+    end
 
-    return { calls = calls, level = notified and notified.level }
+    vim.ui.select = function(_, _, on_choice) on_choice(nil, nil) end
+
+    local nsm = require("nsm")
+    nsm.connect = function() table.insert(captured, "connected") end
+    nsm.switch()
+
+    return captured
   ]])
 
-  eq(result.calls, 0)
-  eq(result.level, vim.log.levels.WARN)
+  eq(calls, { { "nsm", "pick" } })
+end
+
+T["switch"]["passes zoxide rows to vim.ui.select"] = function()
+  local result = child.lua([[
+    local captured = { commands = {} }
+    local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"},{"label":"[Z] 📁 ~/recent","name":null,"path":"/home/ana/recent","source":"zoxide"}]'
+
+    vim.system = function(command)
+      table.insert(captured.commands, command)
+      return { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/project.sock", stderr = "", wait = function(self) return self end }
+    end
+
+    vim.ui.select = function(items, opts, on_choice, start_opts)
+      captured.sources = vim.tbl_map(function(item) return item.source end, items)
+      captured.zoxide_label = items[2].label
+      captured.prompt = opts.prompt
+      captured.extra_opts = start_opts
+      on_choice(items[1], 1)
+    end
+
+    local nsm = require("nsm")
+    nsm.connect = function() end
+    nsm.switch()
+
+    return captured
+  ]])
+
+  eq(result.sources, { "directory", "zoxide" })
+  eq(result.zoxide_label, "[Z] 📁 ~/recent")
+  eq(result.prompt, "nsm> ")
+  eq(result.extra_opts, nil)
+end
+
+T["switch"]["notifies when the pick command fails"] = function()
+  local message = child.lua([[
+    local notified
+
+    vim.system = function()
+      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m Cannot query the sessions", wait = function(self) return self end }
+    end
+
+    vim.notify = function(text) notified = text end
+    require("nsm").switch()
+
+    return notified
+  ]])
+
+  eq(message, "[E] Cannot query the sessions")
 end
 
 T["setup"] = test.new_set()

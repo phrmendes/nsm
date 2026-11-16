@@ -10,7 +10,7 @@ use ./fixtures.nu [
     write-text
 ]
 use ../../cli/config.nu [get-config]
-use ../../cli/picker.nu [get-preview list-candidates list-projects]
+use ../../cli/picker.nu [get-preview list-candidates list-projects pick-candidate]
 use ../../cli/server.nu [connect-session get-restore-args has-unsaved-changes is-alive wait-until]
 use ../../cli/render.nu [format-sessions]
 use ../../cli/store.nu [
@@ -22,7 +22,6 @@ use ../../cli/store.nu [
     get-previous-session-name
     get-session
     get-session-name
-    get-socket
     list-sessions
     resolve-target
     save-session
@@ -170,7 +169,7 @@ def "test get-session-returns-record-or-specific-error" []: nothing -> nothing {
         assert equal (get-session work) {
             name: work
             path: $root
-            socket: (get-socket work)
+            socket: (get-session work).socket
         }
         assert equal (error-message { get-session ghost }) 'No session is named ghost.'
     }
@@ -272,13 +271,15 @@ def "test save-session-updates-path-and-preserves-metadata" []: nothing -> nothi
         make-dir $second_path
 
         save-session work $first_path
-        let first = query-store ($root | path join nsm sessions.db) 'select * from sessions' | first
-        query-store ($root | path join nsm sessions.db) 'update sessions set attached_at = 123 where name = :name' --params {name: work} | ignore
+        let db = $root | path join nsm sessions.db
+        let first = query-store $db 'select * from sessions' | first
+        let custom_socket = $root | path join custom.sock
+        query-store $db 'update sessions set socket = :socket, attached_at = 123 where name = :name' --params {name: work, socket: $custom_socket} | ignore
         save-session work $second_path
         let updated = query-store ($root | path join nsm sessions.db) 'select * from sessions' | first
 
         assert equal $updated.path $second_path 'updated project path'
-        assert equal $updated.socket (get-socket work) 'stable socket path'
+        assert equal $updated.socket $custom_socket 'custom socket path stays unchanged'
         assert equal $updated.created_at $first.created_at 'creation time stays unchanged'
         assert equal $updated.attached_at 123 'attachment time stays unchanged'
     }
@@ -408,46 +409,173 @@ def "test main-new-rejects-file-without-saving-session" []: nothing -> nothing {
     }
 }
 
-# Verify that project discovery finds repositories at depth four, under hidden parents, and with a `.git` file.
-def "test list-projects-discovers-repositories-up-to-depth-four" []: nothing -> nothing {
+# Verify that `new` checks the socket stored for an existing session.
+def "test main-new-checks-the-stored-socket" []: nothing -> nothing {
     let root = mktemp --directory
+    let bin = $root | path join bin
+    let log = $root | path join calls.log
+    let project = $root | path join project
+    let custom_socket = $root | path join custom.sock
+    let path = [$bin] | append $env.PATH | str join (char esep)
+    let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
+    make-dir $bin
+    make-dir $project
+    make-shim ($bin | path join nvim) --interpreter $bash
+
+    with-env {
+        XDG_STATE_HOME: $root
+        HOME: $root
+        PATH: $path
+        SHIM_LOG: $log
+    } {
+        create-store
+        save-session demo $project
+        query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: demo, socket: $custom_socket} | ignore
+        make-file $custom_socket
+
+        let result = nu --no-config-file cli/main.nu new demo $project | complete
+
+        assert ($result.exit_code != 0) 'new refuses a running session'
+        assert (($result.stderr =~ 'already running')) $result.stderr
+        assert (open $log | lines | any {|line| $line =~ $custom_socket }) 'liveness uses the stored socket'
+    }
+
+    remove-path $root
+}
+
+# Verify that configured project roots discover repositories under every path and ignore PROJECTS_DIR.
+def "test list-projects-discovers-repositories-under-configured-roots" []: nothing -> nothing {
+    let root = mktemp --directory
+    let first_root = $root | path join projects
+    let second_root = $root | path join external
+    let missing_root = $root | path join missing
     let directories = [
-        repo1
-        repo2/sub
-        .hidden/repo3
-        a/b/c
-        a/b/c/d
-        plain
-        wt
+        projects/repo1
+        projects/repo2/sub
+        projects/.hidden/repo3
+        projects/a/b/c
+        projects/a/b/c/d
+        projects/plain
+        projects/wt
+        external/repo4
     ]
 
     for directory in $directories {
         make-dir ($root | path join $directory)
     }
 
-    for directory in [repo1 repo2/sub .hidden/repo3 a/b/c a/b/c/d] {
+    for directory in [
+        projects/repo1
+        projects/repo2/sub
+        projects/.hidden/repo3
+        projects/a/b/c
+        projects/a/b/c/d
+        external/repo4
+    ] {
         make-dir ($root | path join $directory .git)
     }
-    make-file ($root | path join wt .git)
+    make-file ($root | path join projects/wt .git)
 
-    let expected = [repo1 repo2/sub .hidden/repo3 a/b/c wt]
+    let expected = [
+        projects/repo1
+        projects/repo2/sub
+        projects/.hidden/repo3
+        projects/a/b/c
+        projects/wt
+        external/repo4
+    ]
     | each {|directory| $root | path join $directory }
+    let config = {
+        projects: [$first_root $second_root $first_root $missing_root]
+    } | to nuon
+    write-text ($root | path join .nsm.nuon) $config
 
-    with-env {PROJECTS_DIR: $root} {
-        assert equal (list-projects | sort) ($expected | sort) 'repositories at depth four'
-    }
-    with-env {PROJECTS_DIR: ($root | path join missing)} {
-        assert equal (list-projects) [] 'missing projects directory'
-    }
-    with-env {PROJECTS_DIR: null} {
-        assert equal (list-projects) [] 'unset projects directory'
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: ($root | path join ignored)} {
+        assert equal (list-projects | sort) ($expected | sort) 'repositories under configured roots only'
     }
 
     remove-path $root
 }
 
-# Verify that connecting focuses an existing kitty tab and starts no new tab.
-def "test connect-session-focuses-existing-kitty-tab" []: nothing -> nothing {
+# Verify that zoxide rows have a distinct source, label, and top-five limit.
+def "test list-candidates-labels-the-top-five-zoxide-rows" []: nothing -> nothing {
+    let root = mktemp --directory
+    let bin = $root | path join bin
+    let zoxide_dirs = 1..7 | each {|index| $root | path join $'zoxide-($index)' }
+    let zoxide_shim = $bin | path join zoxide
+    let path = [$bin] | append $env.PATH | str join (char esep)
+    let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
+    make-dir $bin
+    $zoxide_dirs | each {|directory| make-dir $directory }
+    write-text $zoxide_shim ([
+        $'#!($bash)'
+        'printf "%s\\n" "$ZOXIDE_DIRS"'
+    ] | str join (char nl))
+    chmod +x $zoxide_shim
+
+    with-env {
+        XDG_CONFIG_HOME: $root
+        XDG_STATE_HOME: $root
+        HOME: $root
+        PATH: $path
+        ZOXIDE_DIRS: ($zoxide_dirs | str join (char nl))
+    } {
+        let rows = nu --no-config-file cli/main.nu pick | from json | where source == 'zoxide'
+        assert equal ($rows | length) 5 'only the top five zoxide paths appear'
+        assert equal ($rows | get path) ($zoxide_dirs | take 5) 'zoxide ranking stays ordered'
+        assert (($rows | get label | all {|label| $label | str starts-with '[Z] 📁 ' })) 'zoxide labels carry the source marker'
+    }
+
+    remove-path $root
+}
+
+# Verify that the CLI picker sends zoxide rows to fzf with their selection data.
+def "test pick-candidate-uses-fzf-with-zoxide-rows" []: nothing -> nothing {
+    let root = mktemp --directory
+    let bin = $root | path join bin
+    let log = $root | path join fzf.args
+    let input = $root | path join fzf.input
+    let zoxide_dir = $root | path join zoxide-dir
+    let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
+    let path = [$bin] | append $env.PATH | str join (char esep)
+    make-dir $bin
+    make-dir $zoxide_dir
+
+    let zoxide_shim = [
+        $'#!($bash)'
+        'printf "%s\\n" "$ZOXIDE_DIR"'
+    ] | str join (char nl)
+    write-text ($bin | path join zoxide) $zoxide_shim
+    chmod +x ($bin | path join zoxide)
+
+    let fzf_shim = [
+        $'#!($bash)'
+        'printf "%s\\n" "$*" > "$FZF_LOG"'
+        'cat > "$FZF_INPUT"'
+        'printf "%s\\n" "$FZF_SELECTION"'
+    ] | str join (char nl)
+    write-text ($bin | path join fzf) $fzf_shim
+    chmod +x ($bin | path join fzf)
+
+    with-env {XDG_CONFIG_HOME: $root, XDG_STATE_HOME: $root, HOME: $root, PATH: $path, ZOXIDE_DIR: $zoxide_dir} {
+        create-store
+        let candidate = list-candidates | where source == 'zoxide' | first
+        let selection = [$candidate.label ($candidate | to json --raw)] | str join (char tab)
+
+        let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_SELECTION: $selection} {
+            pick-candidate
+        }
+
+        assert equal $picked $zoxide_dir 'selected zoxide path'
+        assert (open $input | str contains '[Z]') 'zoxide rows appear in fzf'
+        assert (not (open $log | str contains 'ctrl-z')) 'fzf has no zoxide toggle binding'
+    }
+
+    remove-path $root
+}
+
+# Verify that connecting opens the session UI in the current terminal.
+def "test connect-session-opens-the-current-terminal" []: nothing -> nothing {
     let root = mktemp --directory
     let bin = $root | path join bin
     let log = $root | path join calls.log
@@ -456,7 +584,6 @@ def "test connect-session-focuses-existing-kitty-tab" []: nothing -> nothing {
     let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
     make-dir $bin
     make-dir $project
-    make-shim ($bin | path join kitten) --interpreter $bash
     make-shim ($bin | path join nvim) --interpreter $bash
 
     with-env {
@@ -464,25 +591,64 @@ def "test connect-session-focuses-existing-kitty-tab" []: nothing -> nothing {
         HOME: $root
         PATH: $path
         SHIM_LOG: $log
-        KITTY_LISTEN_ON: 'unix:/tmp/kitty'
-        SHIM_FOCUS_EXIT: '0'
     } {
         create-store
         save-session demo $project
-        make-file (get-socket demo)
+        let socket = $root | path join custom.sock
+        query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: demo, socket: $socket} | ignore
+        make-file $socket
         connect-session demo
     }
 
     let calls = open $log | lines
-    assert (($calls | where $it =~ 'focus-tab' | length) == 1) 'one focus call'
-    assert (($calls | where $it =~ 'launch' | length) == 0) 'no launch call'
-    assert (($calls | where $it =~ 'setenv' | length) == 1) 'kitty env is forwarded'
+    let socket = $'($root)/custom.sock'
+    let ui = $calls | where { ($in =~ '--remote-ui') and ($in =~ $socket) } | first
+    assert ($ui != null) 'the UI attaches to the session socket in the current terminal'
 
     remove-path $root
 }
 
-# Verify that connecting opens a kitty tab with the session name, project directory, and env.
-def "test connect-session-opens-kitty-tab-when-missing" []: nothing -> nothing {
+# Verify that pick prints JSON rows with the icons and the session state.
+def "test pick-prints-json-rows" []: nothing -> nothing {
+    let root = mktemp --directory
+    let bin = $root | path join bin
+    let log = $root | path join calls.log
+    let running_path = $root | path join running
+    let stored_path = $root | path join stored
+    let path = [$bin] | append $env.PATH | str join (char esep)
+    let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
+    make-dir $bin
+    make-dir $running_path
+    make-dir $stored_path
+    make-shim ($bin | path join nvim) --interpreter $bash
+
+    let rows = with-env {
+        XDG_STATE_HOME: $root
+        HOME: $root
+        PATH: $path
+        SHIM_LOG: $log
+    } {
+        create-store
+        save-session running $running_path
+        save-session stored $stored_path
+        make-file (get-session running).socket
+
+        nu --no-config-file cli/main.nu pick --sessions | from json
+    }
+
+    let running = $rows | where name == running | first
+    let stored = $rows | where name == stored | first
+
+    assert equal $running.label '🟢 running  ~/running' 'a running session uses the running icon'
+    assert equal $running.source running 'a live socket is running'
+    assert equal $stored.label '⚫ stored  ~/stored' 'a stopped session uses the stored icon'
+    assert equal $stored.source stored 'a missing socket is stored'
+
+    remove-path $root
+}
+
+# Verify that start prints the socket and records the attachment without a tab.
+def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> nothing {
     let root = mktemp --directory
     let bin = $root | path join bin
     let log = $root | path join calls.log
@@ -491,29 +657,43 @@ def "test connect-session-opens-kitty-tab-when-missing" []: nothing -> nothing {
     let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
     make-dir $bin
     make-dir $project
-    make-shim ($bin | path join kitten) --interpreter $bash
-    make-shim ($bin | path join nvim) --interpreter $bash
+    let setsid_shim = $bin | path join setsid
+    write-text $setsid_shim ([$'#!($bash)' 'shift' 'exec "$@"'] | str join (char nl))
+    chmod +x $setsid_shim
+
+    let nvim_shim = $bin | path join nvim
+    let shim = [
+        $'#!($bash)'
+        'printf \'%s\\n\' "$*" >> "$SHIM_LOG"'
+        'previous=""'
+        'for arg in "$@"; do'
+        '  if [ "$previous" = "--listen" ]; then : > "$arg"; fi'
+        '  previous="$arg"'
+        'done'
+    ] | str join (char nl)
+    write-text $nvim_shim $shim
+    chmod +x $nvim_shim
 
     with-env {
         XDG_STATE_HOME: $root
         HOME: $root
         PATH: $path
         SHIM_LOG: $log
-        KITTY_LISTEN_ON: 'unix:/tmp/kitty'
-        SHIM_FOCUS_EXIT: '1'
     } {
         create-store
         save-session demo $project
-        make-file (get-socket demo)
-        connect-session demo
-    }
+        let socket = $root | path join custom.sock
+        query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: demo, socket: $socket} | ignore
 
-    let launch = open $log | lines | where $it =~ 'launch' | first
-    assert ($launch =~ '--type=tab') 'a tab is launched'
-    assert ($launch =~ '--tab-title demo') 'the tab carries the session name'
-    assert ($launch =~ $'--cwd ($project)') 'the tab opens in the project'
-    assert ($launch =~ 'NSM_SESSION=demo') 'the tab carries the session env'
-    assert ($launch =~ '--remote-ui') 'the tab attaches a UI'
+        let result = nu --no-config-file cli/main.nu start demo | complete
+
+        assert equal $result.exit_code 0 $'stdout: ($result.stdout) stderr: ($result.stderr)'
+        assert equal ($result.stdout | str trim) $socket 'stdout is the stored socket'
+        assert (open $log | lines | any {|line| ($line =~ '--listen') and ($line =~ $socket) }) 'server starts on the stored socket'
+
+        let attached = query-store ($root | path join nsm sessions.db) 'select attached_at from sessions where name = :name' --params { name: demo } | first
+        assert ($attached.attached_at != null) 'the session counts as attached'
+    }
 
     remove-path $root
 }
@@ -526,7 +706,8 @@ def "test kill-guards-unsaved-changes" []: nothing -> nothing {
         make-dir $project
         make-file $file
         save-session demo $project
-        let socket = (get-socket demo)
+        let socket = $root | path join custom.sock
+        query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: demo, socket: $socket} | ignore
 
         job spawn { nvim --headless --listen $socket $file }
 
@@ -556,7 +737,6 @@ def "test attach-creates-missing-session" []: nothing -> nothing {
     let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
     make-dir $bin
     make-dir $project
-    make-shim ($bin | path join kitten) --interpreter $bash
     make-shim ($bin | path join nvim) --interpreter $bash
 
     with-env {
@@ -564,11 +744,9 @@ def "test attach-creates-missing-session" []: nothing -> nothing {
         HOME: $root
         PATH: $path
         SHIM_LOG: $log
-        KITTY_LISTEN_ON: 'unix:/tmp/kitty'
-        SHIM_FOCUS_EXIT: '0'
     } {
         create-store
-        make-file (get-socket project)
+        make-file ($root | path join nsm project.sock)
 
         let result = nu --no-config-file cli/main.nu attach $project | complete
 
@@ -607,7 +785,7 @@ def "test kill-all-stops-every-session" []: nothing -> nothing {
         assert equal $result.exit_code 0 $result.stderr
         assert equal (list-sessions) [] 'every session is gone'
         assert (($result.stdout =~ 'Stopped one') and ($result.stdout =~ 'Stopped two')) $result.stdout
-        assert (not ((get-socket one) | path exists)) 'socket is removed'
+        assert (not (($root | path join nsm one.sock) | path exists)) 'socket is removed'
 
         let empty = nu --no-config-file cli/main.nu k -a -f | complete
         assert equal $empty.exit_code 0 $empty.stderr
@@ -630,6 +808,24 @@ def "test get-preview-lists-files" []: nothing -> nothing {
     remove-path $root
 }
 
+# Verify that preview prints the preview of one JSON row.
+def "test preview-prints-the-preview-of-one-row" []: nothing -> nothing {
+    let root = mktemp --directory
+    let project = $root | path join project
+    make-dir $project
+    make-file ($project | path join notes.txt)
+    let row = {name: null, path: $project, source: directory} | to json --raw
+
+    let result = nu --no-config-file cli/main.nu preview $row | complete
+
+    assert equal $result.exit_code 0 $result.stderr
+    assert (
+        ($result.stdout | str contains $project) and ($result.stdout | str contains 'notes.txt')
+    ) $result.stdout
+
+    remove-path $root
+}
+
 # Verify that a missing configuration file gives the defaults.
 def "test get-config-defaults-without-a-file" []: nothing -> nothing {
     let root = mktemp --directory
@@ -637,7 +833,7 @@ def "test get-config-defaults-without-a-file" []: nothing -> nothing {
     with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
         let config = get-config
 
-        assert equal $config.projects.dir null
+        assert equal $config.projects []
         assert equal $config.icons.running '🟢'
         assert equal $config.icons.stored '⚫'
         assert equal $config.icons.directory '📁'
@@ -647,46 +843,23 @@ def "test get-config-defaults-without-a-file" []: nothing -> nothing {
     remove-path $root
 }
 
-# Verify that the file sets the projects folder and overrides single icons.
-def "test get-config-reads-projects-and-icons" []: nothing -> nothing {
+# Verify that the file sets a project path list and overrides single icons.
+def "test get-config-reads-project-paths-and-icons" []: nothing -> nothing {
     let root = mktemp --directory
-    let projects = $root | path join projects
+    let projects = [$root $root path join other]
     let file = $root | path join .nsm.nuon
 
     write-text $file ({
-        projects: {dir: $projects}
+        projects: $projects
         icons: {directory: 'D'}
     } | to nuon)
 
     with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
         let config = get-config
 
-        assert equal $config.projects.dir $projects
+        assert equal $config.projects $projects
         assert equal $config.icons.directory 'D'
         assert equal $config.icons.running '🟢'
-    }
-
-    remove-path $root
-}
-
-# Verify that projects.dir is used when PROJECTS_DIR is empty, and that PROJECTS_DIR wins when set.
-def "test projects-dir-config-and-precedence" []: nothing -> nothing {
-    let root = mktemp --directory
-    let projects = $root | path join projects
-    let repository = $projects | path join repo
-    let other = $root | path join other
-    make-dir ($repository | path join .git)
-    make-dir ($other | path join .git)
-
-    write-text ($root | path join .nsm.nuon) ({
-        projects: {dir: $projects}
-    } | to nuon)
-
-    with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: ''} {
-        assert equal (list-projects) [$repository] 'config directory'
-    }
-    with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: $other} {
-        assert equal (list-projects) [$other] 'environment wins'
     }
 
     remove-path $root
