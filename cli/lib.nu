@@ -28,3 +28,23 @@ export def remove-path [path: path]: nothing -> nothing {
         fail $"Cannot remove ($path): ($err.msg)"
     }
 }
+
+# Return a path with the home directory written as a tilde.
+@example 'a tilde replaces the home' { with-env {HOME: /h} { get-display-path /h/code } } --result '~/code'
+export def get-display-path [path: string]: nothing -> string {
+    let relative = try {
+        $path | path relative-to $env.HOME
+    } catch {
+        null
+    }
+
+    if $relative == null {
+        return $path
+    }
+
+    if ($relative | is-empty) {
+        return '~'
+    }
+
+    ['~' $relative] | path join
+}

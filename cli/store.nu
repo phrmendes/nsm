@@ -41,6 +41,17 @@ export def find-session [name: string]: nothing -> oneof<record, nothing> {
     | get --optional 0
 }
 
+# Return the session that uses a directory, or nothing when no session does.
+export def find-session-by-path [path: path]: nothing -> oneof<record, nothing> {
+    run-sql 'select name, path from sessions where path = :path' --params {path: $path}
+    | get --optional 0
+}
+
+# Return the name of every session.
+export def list-session-names []: nothing -> list<string> {
+    run-sql 'select name from sessions' | get name
+}
+
 # Create the socket path for a new session row.
 def make-socket-path [name: string]: nothing -> string {
     get-state-dir | path join $'($name).sock'
@@ -70,60 +81,6 @@ export def create-store []: nothing -> nothing {
     migrate-store
 }
 
-# Stop when the name is empty or has a character that is not safe in a file name.
-export def check-name [name: string]: nothing -> nothing {
-    if $name !~ '^[a-zA-Z0-9._-]+$' {
-        fail 'A session name may only hold letters, digits, dots, dashes and underscores.'
-    }
-}
-
-# Return the name that a directory gets as a session: the basename of its git root, or of the directory itself.
-export def get-session-name [directory: path]: nothing -> string {
-    let root = git -C $directory rev-parse --show-toplevel | complete
-    let base = if $root.exit_code == 0 {
-        $root.stdout | str trim
-    } else {
-        $directory
-    }
-
-    $base | path basename | str replace --all --regex '[^a-zA-Z0-9._-]' '-'
-}
-
-# Return the first of the base and its numbered variants that no session uses.
-@example 'a free name stays as it is' { get-free-name app } --result app
-@example 'a taken name gets a number' { get-free-name app app app-2 } --result app-3
-export def get-free-name [base: string, ...taken: string]: nothing -> string {
-    mut candidate = $base
-    mut suffix = 1
-
-    while $candidate in $taken {
-        $suffix += 1
-        $candidate = $'($base)-($suffix)'
-    }
-
-    $candidate
-}
-
-# Return a path with the home directory written as a tilde.
-@example 'a tilde replaces the home' { with-env {HOME: /h} { get-display-path /h/code } } --result '~/code'
-export def get-display-path [path: string]: nothing -> string {
-    let relative = try {
-        $path | path relative-to $env.HOME
-    } catch {
-        null
-    }
-
-    if $relative == null {
-        return $path
-    }
-
-    if ($relative | is-empty) {
-        return '~'
-    }
-
-    ['~' $relative] | path join
-}
-
 # Return the row of a session, or fail when no session has that name.
 export def get-session [name: string]: nothing -> record<name: string, path: string, socket: string> {
     let session = find-session $name
@@ -133,35 +90,6 @@ export def get-session [name: string]: nothing -> record<name: string, path: str
     }
 
     $session
-}
-
-# Resolve a session name or a directory to the name and the directory of a session.
-export def resolve-target [target: string]: nothing -> record<name: string, path: string> {
-    let named = find-session $target
-
-    if $named != null {
-        return ($named | select name path)
-    }
-
-    let directory = $target | path expand
-
-    if ($directory | path type) != 'dir' {
-        fail $'No session is named ($target), and ($directory) is not a directory.'
-    }
-
-    let existing = run-sql 'select name, path from sessions where path = :path' --params {path: $directory}
-    | get --optional 0
-
-    if $existing != null {
-        return $existing
-    }
-
-    {
-        name: (
-            get-free-name (get-session-name $directory) ...(run-sql 'select name from sessions' | get name)
-        )
-        path: $directory
-    }
 }
 
 # Create a session, or update its directory.

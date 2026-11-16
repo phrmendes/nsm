@@ -1,13 +1,19 @@
-use lib.nu [fail remove-path report-error warn]
-use picker.nu [get-preview list-candidates pick-candidate]
+use lib.nu [fail report-error warn]
+use picker.nu [get-preview list-candidates list-host-candidates pick-candidate]
 use render.nu [format-sessions]
-use server.nu [connect-session has-unsaved-changes is-alive start-session wait-until]
+use server.nu [
+    connect-session
+    get-dirty-sessions
+    has-unsaved-changes
+    is-alive
+    start-session
+    stop-session
+]
+use names.nu [check-name]
 use store.nu [
-    check-name
     create-store
-    delete-session
-    get-previous-session-name
     find-session
+    get-previous-session-name
     get-session
     list-sessions
     save-session
@@ -16,31 +22,63 @@ use store.nu [
 
 $env.config = ($env.config | upsert error_style 'short')
 
-# Stop the server of a session and forget it.
-def stop-session [name: string]: nothing -> nothing {
-    let session = get-session $name
+# Run a command body against the store and report a failure.
+def run-command [body: closure]: nothing -> nothing {
+    report-error {
+        create-store
+        do $body
+    }
+}
 
-    if (is-alive $session.socket) {
-        nvim --clean --server $session.socket --remote-send '<C-\><C-N>:qall!<CR>'
+# Stop every session, refusing sessions that have unsaved changes unless forced.
+def kill-all [force: bool]: nothing -> nothing {
+    let sessions = list-sessions
 
-        if not (wait-until { not (is-alive $session.socket) }) {
-            fail $'The server of ($name) did not stop.'
+    if ($sessions | is-empty) {
+        warn 'No sessions.'
+        return
+    }
+
+    if not $force {
+        let dirty = get-dirty-sessions $sessions
+
+        if ($dirty | is-not-empty) {
+            fail $'These sessions have unsaved changes: ($dirty | str join ", "). Save them, or run `nsm kill --all --force`.'
         }
     }
 
-    remove-path $session.socket
-    delete-session $name
+    for session in $sessions {
+        stop-session $session.name
+    }
+}
 
-    print $'Stopped ($name).'
+# Stop one session, refusing it when it has unsaved changes unless forced.
+def kill-one [target: string, force: bool]: nothing -> nothing {
+    let session = get-session $target
+
+    if not $force and (is-alive $session.socket) and (has-unsaved-changes $target) {
+        fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.'
+    }
+
+    stop-session $target
+}
+
+# Return the description of a subcommand.
+def get-summary [name: string]: nothing -> string {
+    let command = scope commands | where name == $name | get --optional 0
+
+    if $command == null {
+        return ''
+    }
+
+    $command.description | str replace --regex '\.$' ''
 }
 
 # Pick another session and open it. The picker does not list the current session.
 def "main switch" [
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         let current = $env.NSM_SESSION?
         let chosen = if $current == null {
             pick-candidate --scope $scope
@@ -54,9 +92,7 @@ def "main switch" [
 
 # Return to the session that you opened before the current one.
 def "main last" []: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         let previous = get-previous-session-name
 
         if $previous == null {
@@ -72,9 +108,7 @@ def "main attach" [
     target?: string # A session name or a directory
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         connect-session ($target | default {|| pick-candidate --scope $scope })
     }
 }
@@ -84,8 +118,7 @@ def "main new" [
     name: string # The name of the session
     path?: path # The directory of the project, the current directory by default
 ]: nothing -> nothing {
-    report-error {
-        create-store
+    run-command {
         check-name $name
 
         let directory = $path | default $env.PWD | path expand
@@ -107,9 +140,7 @@ def "main new" [
 
 # Print a compact table of sessions or a clear empty-state message.
 def "main list" []: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         let sessions = list-sessions
         | insert running {|session| is-alive $session.socket }
 
@@ -122,21 +153,32 @@ def "main preview" [
     candidate: string # A candidate row as JSON
 ]: nothing -> nothing {
     report-error {
-        print (get-preview ($candidate | decode base64 | decode | from json))
+        let row = try {
+            $candidate | decode base64 | decode | from json
+        } catch {
+            fail 'The preview data is invalid.'
+        }
+
+        print (get-preview $row)
     }
 }
 
 # Print the rows of the picker as JSON for the Neovim plugin.
 def "main pick" [
     --sessions # Only list sessions, not directories
+    --hosts # Include SSH hosts from the user's configuration
     --scope: string = '' # Only list rows under this directory
 ]: nothing -> nothing {
-    report-error {
-        create-store
+    run-command {
+        let exclude = $env.NSM_SESSION? | default {|| ''}
+        let rows = list-candidates --exclude $exclude --sessions=$sessions --scope $scope
+        let rows = if $hosts {
+            $rows | append (list-host-candidates)
+        } else {
+            $rows
+        }
 
-        let exclude = $env.NSM_SESSION? | default ''
-
-        list-candidates --exclude $exclude --sessions=$sessions --scope $scope | to json
+        $rows | to json
     }
 }
 
@@ -144,9 +186,7 @@ def "main pick" [
 def "main start" [
     target: string # A session name or a directory
 ]: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         let session = (start-session $target)
 
         touch-session $session.name
@@ -161,60 +201,41 @@ def "main kill" [
     --force (-f) # Stop a session even when it has unsaved changes
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
-    report-error {
-        create-store
-
+    run-command {
         if $all {
-            let sessions = list-sessions
-
-            if ($sessions | is-empty) {
-                warn 'No sessions.'
-                return
-            }
-
-            if not $force {
-                let dirty = $sessions
-                | where {|session| is-alive $session.socket }
-                | where {|session| has-unsaved-changes $session.name }
-                | get name
-
-                if not ($dirty | is-empty) {
-                    fail $'These sessions have unsaved changes: ($dirty | str join ", "). Save them, or run `nsm kill --all --force`.'
-                }
-            }
-
-            for session in $sessions {
-                stop-session $session.name
-            }
-
+            kill-all $force
             return
         }
 
         let target = $name | default {|| pick-candidate --sessions --scope $scope }
 
-        if $target == null {
-            return
+        if $target != null {
+            kill-one $target $force
         }
-
-        let session = get-session $target
-
-        if not $force and (is-alive $session.socket) and (has-unsaved-changes $target) {
-            fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.'
-        }
-
-        stop-session $target
     }
 }
 
 # Print the subcommands of nsm.
 def main []: nothing -> nothing {
-    let usage = [
-        'Use `attach` to open a session, `switch` or `last` to change session,'
-        '`new` to name one, `list` to list them or `kill` to stop one.'
+    let names = [
+        'main attach'
+        'main switch'
+        'main last'
+        'main new'
+        'main list'
+        'main pick'
+        'main start'
+        'main preview'
+        'main kill'
     ]
-    | str join (char nl)
 
-    print $usage
+    $names
+    | each {|name|
+        let short = $name | str replace 'main ' ''
+        $"  ($short)  (get-summary $name)"
+    }
+    | str join (char nl)
+    | print
 }
 
 # Pick another session and open it.

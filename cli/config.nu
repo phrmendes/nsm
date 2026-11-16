@@ -1,10 +1,10 @@
-use lib.nu [fail]
-use store.nu [get-display-path]
+use lib.nu [fail get-display-path]
 
 const DEFAULT_ICONS = {
     running: '🟢'
     stored: '⚫'
     directory: '📁'
+    host: '🌐'
 }
 
 # Return the path of the configuration file.

@@ -1,4 +1,4 @@
-use store.nu [get-display-path]
+use lib.nu [get-display-path]
 
 # Return the text of a compact table of sessions, or the empty-state message.
 export def format-sessions [sessions: table]: nothing -> string {
