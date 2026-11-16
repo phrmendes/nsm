@@ -11,3 +11,9 @@ unhandled_external_error = "off"
 redundant_nu_subprocess = "off"
 # A named parameter of a pure function reads better than input from a pipeline.
 positional_to_pipeline = "off"
+# The test commands run by name from `run-tests`, so static reachability cannot see them.
+unused_helper_functions = "off"
+# The CLI reports a failure by printing it and exiting; the exit stays in the reporter.
+exit_only_in_main = "off"
+# Test helpers take the three paths they need; an options record reads worse there.
+max_positional_params = "off"

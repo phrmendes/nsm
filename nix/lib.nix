@@ -3,11 +3,7 @@
 let
   inherit (pkgs) lib;
 
-  nushell = pkgs.nushell;
-  versionLine = lib.findFirst (line: lib.hasPrefix "version" line) "" (
-    lib.splitString "\n" (builtins.readFile (root + "/.cz.toml"))
-  );
-  version = lib.removeSuffix "\"" (lib.removePrefix "version = \"" (lib.trim versionLine));
+  version = (builtins.fromTOML (builtins.readFile (root + "/.cz.toml"))).tool.commitizen.version;
 in
 {
   packages = {
@@ -20,7 +16,7 @@ in
           binPath = with pkgs; lib.makeBinPath [ fzf git util-linux zoxide ];
         in
         ''
-          #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe nushell} --no-config-file
+          #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe pkgs.nushell} --no-config-file
           ${builtins.readFile (root + "/cli/main.nu")}
 
           $env.PATH = ($env.PATH | prepend [${
@@ -45,13 +41,13 @@ in
       coreutils
       git
       neovim
+      util-linux
     ];
     NU_LIB_DIRS = "${root}/cli";
     MINI_NVIM = "${pkgs.vimPlugins.mini-nvim}";
   } ''
     cd ${root}
-    nu tests/cli/tests.nu
-    nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniTest.run()'
+    nu ${root}/scripts/test.nu
     cp -r ${root}/lua ${root}/scripts $TMPDIR
     cd $TMPDIR
     nvim --headless --noplugin -u ./scripts/init.lua -c "lua MiniDoc.generate(nil, 'doc/nsm.txt')" -c 'qa!'

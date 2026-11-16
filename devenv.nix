@@ -32,10 +32,7 @@
     stages = [ "commit-msg" ];
   };
 
-  enterTest = ''
-    nu tests/cli/tests.nu
-    nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniTest.run()'
-  '';
+  enterTest = "nu scripts/test.nu";
 
   tasks = {
     "lint:all".exec = "nu-lint --format compact --config nu-lint.toml cli tests";
