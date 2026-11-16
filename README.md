@@ -24,3 +24,7 @@ require("nsm").setup({ keymap = "<leader>s" })
 Hosts from `~/.ssh/config` also appear in the picker when Neovim supports `:connect ssh://`.
 
 Run `:checkhealth nsm`. See `:help nsm` for commands, configuration, and requirements.
+
+## License
+
+Apache-2.0. See [LICENSE](LICENSE).

@@ -11,9 +11,17 @@ in
       name = "nsm";
       destination = "/bin/nsm";
       executable = true;
+      meta.license = lib.licenses.asl20;
       text =
         let
-          binPath = with pkgs; lib.makeBinPath [ fzf git util-linux zoxide ];
+          binPath =
+            with pkgs;
+            lib.makeBinPath [
+              fzf
+              git
+              util-linux
+              zoxide
+            ];
         in
         ''
           #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe pkgs.nushell} --no-config-file
@@ -29,29 +37,33 @@ in
       pname = "nsm.nvim";
       inherit version;
       src = root;
+      meta.license = lib.licenses.asl20;
     };
   };
 
-  checks.unit = pkgs.runCommand "nsm-unit-tests" {
-    nativeBuildInputs = with pkgs; [
-      nushell
-      fzf
-      bash
-      commitizen
-      coreutils
-      git
-      neovim
-      util-linux
-    ];
-    NU_LIB_DIRS = "${root}/cli";
-    MINI_NVIM = "${pkgs.vimPlugins.mini-nvim}";
-  } ''
-    cd ${root}
-    nu ${root}/scripts/test.nu
-    cp -r ${root}/lua ${root}/scripts $TMPDIR
-    cd $TMPDIR
-    nvim --headless --noplugin -u ./scripts/init.lua -c "lua MiniDoc.generate(nil, 'doc/nsm.txt')" -c 'qa!'
-    diff -u ${root}/doc/nsm.txt $TMPDIR/doc/nsm.txt
-    touch $out
-  '';
+  checks.unit =
+    pkgs.runCommand "nsm-unit-tests"
+      {
+        nativeBuildInputs = with pkgs; [
+          nushell
+          fzf
+          bash
+          commitizen
+          coreutils
+          git
+          neovim
+          util-linux
+        ];
+        NU_LIB_DIRS = "${root}/cli";
+        MINI_NVIM = "${pkgs.vimPlugins.mini-nvim}";
+      }
+      ''
+        cd ${root}
+        nu ${root}/scripts/test.nu
+        cp -r ${root}/lua ${root}/scripts $TMPDIR
+        cd $TMPDIR
+        nvim --headless --noplugin -u ./scripts/init.lua -c "lua MiniDoc.generate(nil, 'doc/nsm.txt')" -c 'qa!'
+        diff -u ${root}/doc/nsm.txt $TMPDIR/doc/nsm.txt
+        touch $out
+      '';
 }
