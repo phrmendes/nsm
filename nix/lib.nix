@@ -12,15 +12,14 @@ in
       destination = "/bin/nsm";
       executable = true;
       meta.license = lib.licenses.asl20;
+      meta.mainProgram = "nsm";
       text =
         let
           binPath =
             with pkgs;
             lib.makeBinPath [
               fzf
-              git
-              util-linux
-              zoxide
+              util-linuxMinimal
             ];
         in
         ''
@@ -46,9 +45,7 @@ in
       {
         nativeBuildInputs = with pkgs; [
           nushell
-          fzf
           bash
-          commitizen
           coreutils
           git
           neovim

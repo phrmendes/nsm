@@ -14,9 +14,9 @@
     nu-lint
     nufmt
     nushell
+    shellcheck
     stylua
     util-linux
-    zoxide
   ];
 
   env = {
@@ -35,8 +35,10 @@
   enterTest = "nu scripts/test.nu";
 
   tasks = {
-    "lint:all".exec = "nu-lint --format compact --config nu-lint.toml cli tests";
+    "lint:all".exec =
+      "nu-lint --format compact --config nu-lint.toml cli tests && shellcheck scripts/install.sh";
     "format:check".exec = "nufmt --dry-run cli tests && stylua --check lua plugin scripts tests";
-    "doc:run".exec = "nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniDoc.generate()' -c 'qa!'";
+    "doc:run".exec =
+      "nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniDoc.generate()' -c 'qa!'";
   };
 }
