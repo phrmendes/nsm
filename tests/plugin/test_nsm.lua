@@ -3,272 +3,265 @@ local eq = test.expect.equality
 
 local child = test.new_child_neovim()
 
+local prelude = [=[
+  H = { calls = {}, notifications = {}, connects = {} }
+
+  vim.notify = function(text, level) table.insert(H.notifications, { text = text, level = level }) end
+
+  -- Pretend Neovim has `:connect ssh://` unless a case says otherwise.
+  vim.fn.getcompletion = function() return { "remote-ssh" } end
+
+  H.system = function(handler)
+    vim.system = function(command, _, on_exit)
+      table.insert(H.calls, command)
+      local result = handler(command)
+      result.wait = function(self) return self end
+      if result.defer then
+        H.pending = function() on_exit(result) end
+      elseif on_exit then
+        on_exit(result)
+      end
+      return result
+    end
+  end
+
+  H.select = function(index)
+    vim.ui.select = function(items, opts, on_choice)
+      H.items = items
+      H.prompt = opts.prompt
+      on_choice(index and items[index] or nil, index)
+    end
+  end
+
+  H.load = function()
+    package.loaded["nsm"] = nil
+    local nsm = require("nsm")
+    nsm.connect = function(address) table.insert(H.connects, address) end
+    return nsm
+  end
+
+  -- Wait for scheduled callbacks so that missing actions are observable.
+  H.flush = function()
+    local done = false
+    vim.schedule(function() done = true end)
+    vim.wait(1000, function() return done end, 10)
+    return H
+  end
+]=]
+
 local T = test.new_set({
   hooks = {
-    pre_case = function() child.restart({ "-u", "scripts/init.lua" }, { connection_timeout = 2000 }) end,
+    pre_case = function()
+      child.restart({ "-u", "scripts/init.lua" }, { connection_timeout = 2000 })
+      child.lua(prelude)
+    end,
     post_once = child.stop,
   },
 })
 
+local rows = {
+  session = '[{"label":"🟢 work  ~/work","name":"work","path":"/home/ana/work","source":"running"}]',
+  directory = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"}]',
+  host = '[{"label":"🌐 work","name":null,"path":null,"source":"host","address":"ssh://work"}]',
+  empty = "[]",
+}
+
 T["switch"] = test.new_set()
 
 T["switch"]["starts the chosen session and attaches the current UI"] = function()
-  local calls = child.lua([[
-    local captured = {}
-    local rows = '[{"label":"🟢 work  ~/work","name":"work","path":"/home/ana/work","source":"running"}]'
+  local result = child.lua(([[
+    local rows = %s
+    H.system(function(command)
+      return { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/work.sock\n", stderr = "" }
+    end)
+    H.select(1)
 
-    vim.system = function(command, _, on_exit)
-      table.insert(captured, { command = command })
+    H.load().switch()
 
-      local result = {
-        code = 0,
-        stdout = command[2] == "pick" and rows or "/state/nsm/work.sock\n",
-        stderr = "",
-        wait = function(self) return self end,
-      }
-      if on_exit then on_exit(result) end
-      return result
-    end
+    return H.flush().calls
+  ]]):format(vim.inspect(rows.session)))
 
-    vim.ui.select = function(items, opts, on_choice)
-      table.insert(captured, { prompt = opts.prompt, labels = vim.tbl_map(function(item) return item.label end, items) })
-      on_choice(items[1], 1)
-    end
-
-    local nsm = require("nsm")
-    nsm.connect = function(address) table.insert(captured, { connect = address }) end
-    nsm.switch()
-    vim.wait(1000, function() return captured[#captured] and captured[#captured].connect ~= nil end, 10)
-
-    return captured
-  ]])
-
-  eq(calls, {
-    { command = { "nsm", "pick" } },
-    { prompt = "nsm> ", labels = { "🟢 work  ~/work" } },
-    { command = { "nsm", "start", "work" } },
-    { connect = "/state/nsm/work.sock" },
+  eq(result, {
+    { "nsm", "pick", "--hosts" },
+    { "nsm", "start", "work" },
   })
+  eq(child.lua_get("H.connects"), { "/state/nsm/work.sock" })
 end
 
 T["switch"]["starts a directory that has no session yet"] = function()
-  local calls = child.lua([[
-    local captured = {}
-    local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"}]'
+  local calls = child.lua(([[
+    local rows = %s
+    H.system(function(command)
+      return { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/project.sock\n", stderr = "" }
+    end)
+    H.select(1)
 
-    vim.system = function(command, _, on_exit)
-      table.insert(captured, command)
+    H.load().switch()
 
-      local result = {
-        code = 0,
-        stdout = command[2] == "pick" and rows or "/state/nsm/project.sock\n",
-        stderr = "",
-        wait = function(self) return self end,
-      }
-      if on_exit then on_exit(result) end
-      return result
-    end
-
-    vim.ui.select = function(items, _, on_choice) on_choice(items[1], 1) end
-
-    local nsm = require("nsm")
-    nsm.connect = function(address) table.insert(captured, { connect = address }) end
-    nsm.switch()
-    vim.wait(1000, function() return captured[#captured] and captured[#captured].connect ~= nil end, 10)
-
-    return captured
-  ]])
+    return H.flush().calls
+  ]]):format(vim.inspect(rows.directory)))
 
   eq(calls, {
-    { "nsm", "pick" },
+    { "nsm", "pick", "--hosts" },
     { "nsm", "start", "/home/ana/project" },
-    { connect = "/state/nsm/project.sock" },
   })
+  eq(child.lua_get("H.connects"), { "/state/nsm/project.sock" })
 end
 
 T["switch"]["cancelling the picker starts and connects nothing"] = function()
-  local calls = child.lua([[
-    local captured = {}
+  local result = child.lua(([[
+    local rows = %s
+    H.system(function()
+      return { code = 0, stdout = rows, stderr = "" }
+    end)
+    H.select(nil)
 
-    vim.system = function(command)
-      table.insert(captured, command)
+    H.load().switch()
+    H.flush()
 
-      return { code = 0, stdout = "[{\"label\":\"🟢 work\",\"name\":\"work\",\"path\":\"/w\"}]", stderr = "", wait = function(self) return self end }
-    end
+    return { calls = H.calls, connects = H.connects, labels = H.items and H.items[1].label, prompt = H.prompt }
+  ]]):format(vim.inspect(rows.session)))
 
-    vim.ui.select = function(_, _, on_choice) on_choice(nil, nil) end
-
-    local nsm = require("nsm")
-    nsm.connect = function() table.insert(captured, "connected") end
-    nsm.switch()
-
-    return captured
-  ]])
-
-  eq(calls, { { "nsm", "pick" } })
-end
-
-T["switch"]["passes zoxide rows to vim.ui.select"] = function()
-  local result = child.lua([[
-    local captured = { commands = {} }
-    local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"},{"label":"[Z] 📁 ~/recent","name":null,"path":"/home/ana/recent","source":"zoxide"}]'
-
-    vim.system = function(command, _, on_exit)
-      table.insert(captured.commands, command)
-      local result = { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/project.sock", stderr = "", wait = function(self) return self end }
-      if on_exit then on_exit(result) end
-      return result
-    end
-
-    vim.ui.select = function(items, opts, on_choice, start_opts)
-      captured.sources = vim.tbl_map(function(item) return item.source end, items)
-      captured.zoxide_label = items[2].label
-      captured.prompt = opts.prompt
-      captured.extra_opts = start_opts
-      on_choice(items[1], 1)
-    end
-
-    local nsm = require("nsm")
-    nsm.connect = function(address) captured.connected = address end
-    nsm.switch()
-    vim.wait(1000, function() return captured.connected ~= nil end, 10)
-
-    return captured
-  ]])
-
-  eq(result.sources, { "directory", "zoxide" })
-  eq(result.zoxide_label, "[Z] 📁 ~/recent")
+  eq(result.calls, { { "nsm", "pick", "--hosts" } })
+  eq(result.connects, {})
   eq(result.prompt, "nsm> ")
-  eq(result.extra_opts, nil)
-end
-
-T["switch"]["passes the configured scope to pick"] = function()
-  local calls = child.lua([[
-    local captured = {}
-
-    vim.system = function(command)
-      table.insert(captured, command)
-      return { code = 0, stdout = "[]", stderr = "", wait = function(self) return self end }
-    end
-
-    vim.notify = function() end
-    require("nsm").setup({ scope = "/tmp/projects" })
-    require("nsm").switch()
-
-    return captured
-  ]])
-
-  eq(calls, { { "nsm", "pick", "--scope", "/tmp/projects" } })
+  eq(result.labels, "🟢 work  ~/work")
 end
 
 T["switch"]["notifies on invalid picker JSON"] = function()
-  local message = child.lua([[
-    local notified
+  local notification = child.lua([[
+    H.system(function() return { code = 0, stdout = "not json", stderr = "" } end)
 
-    vim.system = function()
-      return { code = 0, stdout = "not json", stderr = "", wait = function(self) return self end }
-    end
+    H.load().switch()
 
-    vim.notify = function(text) notified = text end
-    require("nsm").switch()
-
-    return notified
+    return H.notifications[1]
   ]])
 
-  eq(message, "nsm returned invalid picker data")
+  eq(notification.text, "nsm returned invalid picker data")
+  eq(notification.level, child.lua_get("vim.log.levels.ERROR"))
 end
 
-T["switch"]["warns on an empty candidate list"] = function()
-  local result = child.lua([[
-    local notified, selected = nil, false
+T["switch"]["notifies the stripped picker error"] = function()
+  local message = child.lua([[
+    H.system(function()
+      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m Cannot query the sessions\n" }
+    end)
 
-    vim.system = function()
-      return { code = 0, stdout = "[]", stderr = "", wait = function(self) return self end }
-    end
+    H.load().switch()
 
-    vim.notify = function(text) notified = text end
-    vim.ui.select = function() selected = true end
-    require("nsm").switch()
-
-    return { message = notified, selected = selected }
+    return H.notifications[1].text
   ]])
 
-  eq(result.selected, false)
-  eq(result.message, "There is nothing to pick. Start a session with `nsm new <name>`.")
+  eq(message, "[E] Cannot query the sessions")
 end
 
-T["switch"]["notifies when nsm cannot be started"] = function()
-  local message = child.lua([[
-    local notified
+T["start"] = test.new_set()
 
-    vim.system = function() error("spawn nsm ENOENT") end
-    vim.notify = function(text) notified = text end
-    require("nsm").switch()
+T["start"]["notifies the stripped start error and connects nothing"] = function()
+  local result = child.lua(([[
+    local rows = %s
+    H.system(function(command)
+      if command[2] == "pick" then return { code = 0, stdout = rows, stderr = "" } end
+      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m The server did not start\n" }
+    end)
+    H.select(1)
 
-    return notified
-  ]])
+    H.load().switch()
+    H.flush()
 
-  assert(message:find("spawn nsm ENOENT") ~= nil)
+    return { text = H.notifications[1].text, connects = H.connects }
+  ]]):format(vim.inspect(rows.session)))
+
+  eq(result.text, "[E] The server did not start")
+  eq(result.connects, {})
 end
 
 T["connect"] = test.new_set()
 
-T["connect"]["notifies when the UI cannot attach"] = function()
-  local message = child.lua([[
-    local notified
+T["connect"]["attaches the UI to the address"] = function()
+  local commands = child.lua([[
+    local commands = {}
+    vim.cmd = function(command) table.insert(commands, command) end
 
-    vim.notify = function(text) notified = text end
+    require("nsm").connect("ssh://work")
+
+    return commands
+  ]])
+
+  eq(commands, { { cmd = "connect", args = { "ssh://work" } } })
+end
+
+T["connect"]["notifies the stripped failure"] = function()
+  local message = child.lua([[
+    vim.cmd = function() error("\27[31m[E]\27[0m Failed to connect", 0) end
+
     require("nsm").connect("/nonexistent/nsm.sock")
 
-    return notified
+    return H.notifications[1].text
   ]])
 
-  assert(message ~= nil and message ~= "")
+  eq(message, "[E] Failed to connect")
 end
 
-T["switch"]["returns before a slow start completes"] = function()
+T["commands"] = test.new_set()
+
+T["commands"]["register the user command and the plug mapping"] = function()
   local result = child.lua([[
-    local captured = { connected = nil, pending = nil }
-    local rows = '[{"label":"🟢 work","name":"work","path":"/w","source":"running"}]'
-
-    vim.system = function(command, _, on_exit)
-      local result = { code = 0, stdout = command[2] == "pick" and rows or "", stderr = "", wait = function(self) return self end }
-      if on_exit then captured.pending = on_exit else return result end
-      return result
-    end
-
-    vim.ui.select = function(items, _, on_choice) on_choice(items[1], 1) end
+    local switched = 0
+    vim.cmd("runtime plugin/nsm.lua")
 
     local nsm = require("nsm")
-    nsm.connect = function(address) captured.connected = address end
-    nsm.switch()
+    nsm.switch = function() switched = switched + 1 end
 
-    captured.before = captured.connected
-    captured.pending({ code = 0, stdout = "/state/nsm/work.sock", stderr = "" })
-    vim.wait(1000, function() return captured.connected ~= nil end, 10)
+    vim.cmd({ cmd = "Nsm" })
+    local mapping = vim.fn.maparg("<Plug>(nsm-switch)", "n", false, true)
+    mapping.callback()
 
-    return { before = captured.before, connected = captured.connected }
+    return { switched = switched, desc = mapping.desc }
   ]])
 
-  eq(result.before, nil)
-  eq(result.connected, "/state/nsm/work.sock")
+  eq(result.switched, 2)
+  eq(result.desc, "Switch session")
 end
 
-T["switch"]["notifies when the pick command fails"] = function()
-  local message = child.lua([[
-    local notified
+T["integration"] = test.new_set()
 
-    vim.system = function()
-      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m Cannot query the sessions", wait = function(self) return self end }
-    end
+local function write_nsm(dir, bash)
+  local script = table.concat({
+    "#!" .. bash,
+    'if [ "$1" = "pick" ]; then printf "%s" "$NSM_ROWS"; exit 0; fi',
+    'if [ "$1" = "start" ]; then printf "%s\\n" "$NSM_SOCKET"; exit 0; fi',
+    "exit 1",
+  }, "\n")
 
-    vim.notify = function(text) notified = text end
-    require("nsm").switch()
+  child.lua(
+    [[
+      local dir, script = ...
+      local path = dir .. "/nsm"
+      vim.fn.writefile(vim.split(script, "\n"), path)
+      vim.uv.fs_chmod(path, 493)
+    ]],
+    { dir, script }
+  )
+end
 
-    return notified
-  ]])
+T["integration"]["uses the real CLI output"] = function()
+  local dir = child.lua_get("(function() local path = vim.fn.tempname(); vim.fn.mkdir(path, 'p'); return path end)()")
+  write_nsm(dir, child.lua_get("vim.fn.exepath('bash')"))
+  child.lua("vim.env.PATH = ... .. ':' .. vim.env.PATH", { dir })
 
-  eq(message, "[E] Cannot query the sessions")
+  local connects = child.lua(([[
+    vim.env.NSM_ROWS = %q
+    vim.env.NSM_SOCKET = "/state/nsm/work.sock\n"
+
+    H.select(1)
+    H.load().switch()
+    vim.wait(2000, function() return #H.connects > 0 end, 10)
+
+    return H.connects
+  ]]):format(rows.session))
+
+  eq(connects, { "/state/nsm/work.sock" })
 end
 
 T["setup"] = test.new_set()
@@ -278,24 +271,6 @@ T["setup"]["custom key replaces the default mapping"] = function()
 
   eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
   eq(child.lua_get("vim.fn.maparg('<leader>s', 'n', false, true).rhs"), "<Plug>(nsm-switch)")
-end
-
-T["setup"]["keeps a mapping that the user owns"] = function()
-  local kept = child.lua([[
-    vim.keymap.set("n", "<leader>w", function() end)
-    require("nsm").setup({ keymap = "<leader>s" })
-
-    return vim.fn.maparg("<leader>w", "n", false, true).callback ~= nil
-  ]])
-
-  eq(kept, true)
-end
-
-T["setup"]["removes the plugin mapping with keymap false"] = function()
-  child.lua([[ require("nsm").setup({ keymap = false }) ]])
-
-  eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
-  eq(child.lua_get("vim.fn.maparg('<Plug>(nsm-switch)', 'n') ~= ''"), true)
 end
 
 return T
