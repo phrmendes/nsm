@@ -28,7 +28,7 @@ def get-label [row: record, icons: record]: nothing -> string {
 # Return the directories that zoxide knows.
 def list-zoxide []: nothing -> list<string> {
     if (which zoxide | is-empty) {
-        fail 'The picker needs zoxide to list directories. Install zoxide to use the picker.'
+        return []
     }
 
     zoxide query --list | lines | first 5

@@ -529,6 +529,23 @@ def "test list-candidates-labels-the-top-five-zoxide-rows" []: nothing -> nothin
     remove-path $root
 }
 
+# Verify that a missing zoxide does not break the picker.
+def "test list-candidates-works-without-zoxide" []: nothing -> nothing {
+    in-store {|root|
+        let project = $root | path join project
+        let config_dir = $root | path join .config
+        make-dir ($project | path join .git)
+        make-dir $config_dir
+        write-text ($config_dir | path join .nsm.nuon) ({projects: [$project]} | to nuon)
+
+        with-env {XDG_CONFIG_HOME: $config_dir, PATH: '/nonexistent'} {
+            let rows = list-candidates
+            assert equal ($rows | get source) ['directory'] 'projects still appear without zoxide'
+            assert equal ($rows | get path) [$project] 'the configured project is listed'
+        }
+    }
+}
+
 # Verify that the CLI picker sends zoxide rows to fzf with their selection data.
 def "test pick-candidate-uses-fzf-with-zoxide-rows" []: nothing -> nothing {
     let root = mktemp --directory
