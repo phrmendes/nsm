@@ -529,20 +529,24 @@ def "test list-candidates-labels-the-top-five-zoxide-rows" []: nothing -> nothin
     remove-path $root
 }
 
-# Verify that a missing zoxide does not break the picker.
-def "test list-candidates-works-without-zoxide" []: nothing -> nothing {
+# Verify that a missing zoxide warns but does not break the picker.
+def "test pick-warns-when-zoxide-is-missing" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
         let config_dir = $root | path join .config
         make-dir ($project | path join .git)
         make-dir $config_dir
         write-text ($config_dir | path join .nsm.nuon) ({projects: [$project]} | to nuon)
+        let nu_dir = which nu | get --optional 0.path | default '/nonexistent' | path dirname
 
-        with-env {XDG_CONFIG_HOME: $config_dir, PATH: '/nonexistent'} {
-            let rows = list-candidates
-            assert equal ($rows | get source) ['directory'] 'projects still appear without zoxide'
-            assert equal ($rows | get path) [$project] 'the configured project is listed'
+        let result = with-env {XDG_CONFIG_HOME: $config_dir, PATH: $nu_dir} {
+            nu --no-config-file cli/main.nu pick | complete
         }
+
+        assert equal $result.exit_code 0 $result.stderr
+        assert ($result.stderr =~ '\[W\].*zoxide') $result.stderr
+        assert equal ($result.stdout | from json | get source) ['directory'] 'projects still appear without zoxide'
+        assert equal ($result.stdout | from json | get path) [$project] 'the configured project is listed'
     }
 }
 
@@ -552,7 +556,7 @@ def "test pick-candidate-uses-fzf-with-zoxide-rows" []: nothing -> nothing {
     let bin = $root | path join bin
     let log = $root | path join fzf.args
     let input = $root | path join fzf.input
-    let zoxide_dir = $root | path join zoxide-dir
+    let zoxide_dir = $root | path join $'zoxide-(char tab)-dir'
     let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
     let path = [$bin] | append $env.PATH | str join (char esep)
     make-dir $bin
@@ -569,22 +573,20 @@ def "test pick-candidate-uses-fzf-with-zoxide-rows" []: nothing -> nothing {
         $'#!($bash)'
         'printf "%s\\n" "$*" > "$FZF_LOG"'
         'cat > "$FZF_INPUT"'
-        'printf "%s\\n" "$FZF_SELECTION"'
+        'head -n 1 "$FZF_INPUT"'
     ] | str join (char nl)
     write-text ($bin | path join fzf) $fzf_shim
     chmod +x ($bin | path join fzf)
 
     with-env {XDG_CONFIG_HOME: $root, XDG_STATE_HOME: $root, HOME: $root, PATH: $path, ZOXIDE_DIR: $zoxide_dir} {
         create-store
-        let candidate = list-candidates | where source == 'zoxide' | first
-        let selection = [$candidate.label ($candidate | to json --raw)] | str join (char tab)
-
-        let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_SELECTION: $selection} {
+        let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input} {
             pick-candidate
         }
 
         assert equal $picked $zoxide_dir 'selected zoxide path'
         assert (open $input | str contains '[Z]') 'zoxide rows appear in fzf'
+        assert equal (open $input | lines | first | split row (char tab) | length) 2 'the encoded row keeps two fields'
         assert (not (open $log | str contains 'ctrl-z')) 'fzf has no zoxide toggle binding'
     }
 
@@ -833,7 +835,8 @@ def "test preview-prints-the-preview-of-one-row" []: nothing -> nothing {
     make-file ($project | path join notes.txt)
     let row = {name: null, path: $project, source: directory} | to json --raw
 
-    let result = nu --no-config-file cli/main.nu preview $row | complete
+    let encoded = $row | encode base64
+    let result = nu --no-config-file cli/main.nu preview $encoded | complete
 
     assert equal $result.exit_code 0 $result.stderr
     assert (

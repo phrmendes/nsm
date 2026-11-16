@@ -122,7 +122,7 @@ def "main preview" [
     candidate: string # A candidate row as JSON
 ]: nothing -> nothing {
     report-error {
-        print (get-preview ($candidate | from json))
+        print (get-preview ($candidate | decode base64 | decode | from json))
     }
 }
 

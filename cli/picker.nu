@@ -1,5 +1,5 @@
 use config.nu [get-config]
-use lib.nu [fail]
+use lib.nu [fail warn]
 use server.nu [is-alive]
 use store.nu [get-display-path list-recent-sessions]
 
@@ -28,6 +28,7 @@ def get-label [row: record, icons: record]: nothing -> string {
 # Return the directories that zoxide knows.
 def list-zoxide []: nothing -> list<string> {
     if (which zoxide | is-empty) {
+        warn 'zoxide is not installed; recent directories are hidden.'
         return []
     }
 
@@ -79,7 +80,7 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
         let label = $candidate.label | str replace --all (char tab) ' ' | str replace --all (char nl) ' '
         [
             $label
-            ($candidate | to json --raw)
+            ($candidate | to json --raw | encode base64)
         ] | str join (char tab)
     }
     let input = $candidates | each $format | str join (char nl)
@@ -97,7 +98,7 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
         return null
     }
 
-    let row = $picked | from json
+    let row = $picked | decode base64 | decode | from json
     $row.name | default $row.path
 }
 
