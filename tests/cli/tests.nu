@@ -609,9 +609,9 @@ def "test kill-all-stops-every-session" []: nothing -> nothing {
         assert (($result.stdout =~ 'Stopped one') and ($result.stdout =~ 'Stopped two')) $result.stdout
         assert (not ((get-socket one) | path exists)) 'socket is removed'
 
-        let empty = nu --no-config-file cli/main.nu kill --all | complete
+        let empty = nu --no-config-file cli/main.nu k -a -f | complete
         assert equal $empty.exit_code 0 $empty.stderr
-        assert (($empty.stdout =~ 'No sessions.')) $empty.stdout
+        assert (($empty.stderr =~ '\[W\]') and ($empty.stderr =~ 'No sessions.')) $empty.stderr
     }
 }
 
@@ -763,4 +763,16 @@ def "test commit-messages-follow-conventional-commits" []: nothing -> nothing {
     let bad = cz check -m 'add stuff' | complete
 
     assert ($bad.exit_code != 0) 'a non-conventional message must fail'
+}
+
+# Verify that a failing command prints its message without a source frame.
+def "test errors-print-without-a-source-frame" []: nothing -> nothing {
+    in-store {|root|
+        let result = nu --no-config-file cli/main.nu attach /nope | complete
+
+        assert ($result.exit_code != 0) 'the command must fail'
+        assert (($result.stderr =~ 'No session is named /nope')) $result.stderr
+        assert (($result.stderr =~ '\[E\]')) $'expected an error icon in: ($result.stderr)'
+        assert (not ($result.stderr =~ '╭─')) $'unexpected source frame in: ($result.stderr)'
+    }
 }

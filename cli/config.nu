@@ -27,7 +27,7 @@ export def get-config []: nothing -> record {
     let user = try {
         open $file
     } catch {|err|
-        fail $'Cannot read (get-display-path $file): ($err.msg)' $file --text file
+        fail $'Cannot read (get-display-path $file): ($err.msg)'
     }
 
     let dir = $user | get --optional projects.dir

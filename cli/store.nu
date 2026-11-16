@@ -73,7 +73,7 @@ export def create-store []: nothing -> nothing {
 # Stop when the name is empty or has a character that is not safe in a file name.
 export def check-name [name: string]: nothing -> nothing {
     if $name !~ '^[a-zA-Z0-9._-]+$' {
-        fail 'A session name may only hold letters, digits, dots, dashes and underscores.' $name --text name
+        fail 'A session name may only hold letters, digits, dots, dashes and underscores.'
     }
 }
 
@@ -129,7 +129,7 @@ export def get-session [name: string]: nothing -> record<name: string, path: str
     let session = find-session $name
 
     if $session == null {
-        fail $'No session is named ($name).' $name --text session
+        fail $'No session is named ($name).'
     }
 
     $session
@@ -146,7 +146,7 @@ export def resolve-target [target: string]: nothing -> record<name: string, path
     let directory = $target | path expand
 
     if ($directory | path type) != 'dir' {
-        fail $'No session is named ($target), and ($directory) is not a directory.' $target --text target
+        fail $'No session is named ($target), and ($directory) is not a directory.'
     }
 
     let existing = run-sql 'select name, path from sessions where path = :path' --params {path: $directory}

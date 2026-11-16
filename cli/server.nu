@@ -11,7 +11,7 @@ def start-server [name: string, path: path]: nothing -> nothing {
     try {
         cd $path
     } catch {|err|
-        fail $'Cannot enter ($path): ($err.msg)' $path --text path
+        fail $'Cannot enter ($path): ($err.msg)'
     }
 
     let restore = get-restore-args $path
@@ -21,7 +21,7 @@ def start-server [name: string, path: path]: nothing -> nothing {
     }
 
     if not (wait-until { is-alive $socket }) {
-        fail $'The server of ($name) did not start.' $name --text session
+        fail $'The server of ($name) did not start.'
     }
 }
 
