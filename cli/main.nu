@@ -94,7 +94,7 @@ def stop-session [name: string]: nothing -> nothing {
     let session = get-session $name
 
     if (is-alive $session.socket) {
-        nvim --server $session.socket --remote-send '<C-\><C-N>:qall!<CR>'
+        nvim --clean --server $session.socket --remote-send '<C-\><C-N>:qall!<CR>'
 
         if not (wait-until { not (is-alive $session.socket) }) {
             fail $'The server of ($name) did not stop.' $name --text name
