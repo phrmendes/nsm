@@ -5,8 +5,8 @@
 
 Open the session picker for the detached Neovim servers that nsm keeps.
 
-`:Nsm` and the `<Plug>(nsm-switch)` mapping open the picker in a kitty
-overlay. They need `kitten` and the `KITTY_LISTEN_ON` variable.
+`:Nsm` and the `<Plug>(nsm-switch)` mapping switch the current UI to the
+chosen session with `:connect`.
 
 ------------------------------------------------------------------------------
 Class ~
@@ -25,12 +25,20 @@ Return ~
 `(string)`
 
 ------------------------------------------------------------------------------
+                                                                 *nsm.connect()*
+                            `nsm.connect`({address})
+Attach the current UI to the Neovim server at `address`.
+
+Parameters ~
+{address} `(string)`
+
+------------------------------------------------------------------------------
                                                                   *nsm.switch()*
                                  `nsm.switch`()
-Open the session picker in a kitty overlay.
+Open the picker and switch the current UI to the chosen session.
 
-Forward the current session to the picker and run `nsm switch` detached.
-Notify a warning and do nothing outside kitty.
+Start the chosen session when it is stopped, then detach the current UI from
+its server and attach it to the chosen server with `:connect`.
 
 ------------------------------------------------------------------------------
                                                                    *nsm.setup()*
