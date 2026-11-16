@@ -36,13 +36,13 @@ def migrate-store []: nothing -> nothing {
 }
 
 # Return the row of a session, or nothing when no session has that name.
-def find-session [name: string]: nothing -> oneof<record, nothing> {
+export def find-session [name: string]: nothing -> oneof<record, nothing> {
     run-sql 'select name, path, socket from sessions where name = :name' --params {name: $name}
     | get --optional 0
 }
 
-# Return the socket of a session.
-export def get-socket [name: string]: nothing -> string {
+# Create the socket path for a new session row.
+def make-socket-path [name: string]: nothing -> string {
     get-state-dir | path join $'($name).sock'
 }
 
@@ -165,17 +165,19 @@ export def resolve-target [target: string]: nothing -> record<name: string, path
 }
 
 # Create a session, or update its directory.
-export def save-session [name: string, path: path]: nothing -> nothing {
+export def save-session [name: string, path: path]: nothing -> record<name: string, path: string, socket: string> {
     let upsert = 'insert into sessions (name, path, socket, created_at)
         values (:name, :path, :socket, :now)
-        on conflict (name) do update set path = excluded.path, socket = excluded.socket'
+        on conflict (name) do update set path = excluded.path'
 
     run-sql $upsert --params {
         name: $name
         path: $path
-        socket: (get-socket $name)
+        socket: (make-socket-path $name)
         now: (get-time)
     } | ignore
+
+    get-session $name
 }
 
 # Return the sessions with their sockets and attachment times, ordered by name.

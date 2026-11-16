@@ -1,7 +1,4 @@
 { pkgs, ... }:
-let
-  nushell = pkgs.nushell.withPlugins [ pkgs.nushellPlugins.skim ];
-in
 {
   languages.lua = {
     enable = true;
@@ -11,8 +8,8 @@ in
 
   packages = with pkgs; [
     commitizen
+    fzf
     git
-    kitty
     neovim
     nu-lint
     nufmt

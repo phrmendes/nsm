@@ -16,12 +16,13 @@ def get-icon [source: string, icons: record]: nothing -> string {
 def get-label [row: record, icons: record]: nothing -> string {
     let icon = get-icon $row.source $icons
     let path = get-display-path $row.path
+    let prefix = if $row.source == 'zoxide' { '[Z] ' } else { '' }
 
     if ($row.name | is-empty) {
-        return $"($icon) ($path)"
+        return $"($prefix)($icon) ($path)"
     }
 
-    $"($icon) ($row.name)  ($path)"
+    $"($prefix)($icon) ($row.name)  ($path)"
 }
 
 # Return the directories that zoxide knows.
@@ -30,7 +31,7 @@ def list-zoxide []: nothing -> list<string> {
         fail 'The picker needs zoxide to list directories. Install zoxide to use the picker.'
     }
 
-    zoxide query --list | lines
+    zoxide query --list | lines | first 5
 }
 
 # Return whether a path is inside the scope. An empty scope keeps every path.
@@ -62,10 +63,10 @@ export def get-preview [candidate: record]: nothing -> string {
     [$candidate.path 'Files' '' $body] | str join (char nl)
 }
 
-# Ask for a row with skim. Return its session name, or its directory when it has no session yet, or nothing on cancel.
+# Pick a row with fzf. Return its session name, its directory, or nothing on cancel.
 export def pick-candidate [--exclude: string = '', --sessions, --scope: string = '']: nothing -> oneof<string, nothing> {
-    if (which sk | is-empty) {
-        fail 'The picker needs the skim plugin. Install nu_plugin_skim, then run `plugin add nu_plugin_skim` and `plugin use nu_plugin_skim`.'
+    if (which fzf | is-empty) {
+        fail 'The picker needs fzf. Install fzf and put it on PATH.'
     }
 
     let candidates = list-candidates --exclude $exclude --sessions=$sessions --scope $scope
@@ -74,30 +75,49 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
         fail 'There is nothing to pick. Start a session with `nsm new <name>`.'
     }
 
-    let preview = { get-preview $in }
-    let picked = $candidates | sk --format {get label} --preview $preview --reverse --height '50%' --prompt 'nsm> '
+    let format = {|candidate|
+        let label = $candidate.label | str replace --all (char tab) ' ' | str replace --all (char nl) ' '
+        [
+            $label
+            ($candidate | to json --raw)
+        ] | str join (char tab)
+    }
+    let input = $candidates | each $format | str join (char nl)
+    let result = $input
+    | fzf --delimiter '\t' --with-nth '1' --preview 'nsm preview {2}' --layout reverse --height '50%' --prompt 'nsm> '
+    | complete
+
+    if $result.exit_code != 0 {
+        return null
+    }
+
+    let picked = $result.stdout | str trim | split row (char tab) | get --optional 1
 
     if $picked == null {
         return null
     }
 
-    $picked.name | default $picked.path
+    let row = $picked | from json
+    $row.name | default $row.path
 }
 
-# Return the git repositories under the projects directory.
+# Return the git repositories under the configured project roots.
 export def list-projects []: nothing -> list<string> {
-    let config = (get-config)
-    let root = $env.PROJECTS_DIR?
-    let root = if ($root | is-empty) { $config.projects.dir } else { $root }
+    (get-config).projects
+    | each {|root|
+        let directory = $root | path expand
 
-    if ($root | is-empty) or not ($root | path exists) {
-        return []
+        if ($directory | path exists) {
+            glob --depth 4 $"($directory)/**/.git" | path dirname
+        } else {
+            []
+        }
     }
-
-    glob --depth 4 $"($root)/**/.git" | path dirname
+    | flatten
+    | uniq
 }
 
-# Return the rows of the picker: the sessions, then the zoxide directories and the projects that have no session yet.
+# Return the rows of the picker: sessions, configured projects, and zoxide directories.
 export def list-candidates [--exclude: string = '', --sessions, --scope: string = '']: nothing -> table {
     let config = (get-config)
     let icons = $config.icons
@@ -124,12 +144,7 @@ export def list-candidates [--exclude: string = '', --sessions, --scope: string 
         return ($known | where {|row| in-scope $row.path $scope })
     }
 
-    let directories = [
-        {|| list-zoxide }
-        {|| list-projects }
-    ]
-    | par-each {|job| do $job }
-    | flatten
+    let projects = list-projects
     | uniq
     | where { ($in | path exists) and $in not-in $known.path }
     | wrap path
@@ -138,5 +153,14 @@ export def list-candidates [--exclude: string = '', --sessions, --scope: string 
     | insert label {|row| get-label $row $icons }
     | select label name path source
 
-    $known | append $directories | where {|row| in-scope $row.path $scope }
+    let zoxide = list-zoxide
+    | uniq
+    | where { ($in | path exists) and $in not-in $known.path and $in not-in $projects.path }
+    | wrap path
+    | insert name null
+    | insert source 'zoxide'
+    | insert label {|row| get-label $row $icons }
+    | select label name path source
+
+    $known | append $projects | append $zoxide | where {|row| in-scope $row.path $scope }
 }

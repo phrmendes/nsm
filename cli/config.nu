@@ -18,7 +18,7 @@ export def get-config []: nothing -> record {
 
     if not ($file | path exists) {
         return {
-            projects: {dir: null}
+            projects: []
             icons: $DEFAULT_ICONS
             restore: {file: null}
         }
@@ -30,11 +30,10 @@ export def get-config []: nothing -> record {
         fail $'Cannot read (get-display-path $file): ($err.msg)'
     }
 
-    let dir = $user | get --optional projects.dir
-    let dir = if ($dir | is-empty) { null } else { $dir }
+    let projects = $user | get --optional projects | default []
 
     {
-        projects: {dir: $dir}
+        projects: $projects
         icons: ($DEFAULT_ICONS | merge ($user.icons? | default {}))
         restore: {
             file: ($user | get --optional restore.file)

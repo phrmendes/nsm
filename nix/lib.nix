@@ -3,7 +3,7 @@
 let
   inherit (pkgs) lib;
 
-  nushell = pkgs.nushell.withPlugins [ pkgs.nushellPlugins.skim ];
+  nushell = pkgs.nushell;
 in
 {
   packages = {
@@ -13,7 +13,7 @@ in
       executable = true;
       text =
         let
-          binPath = with pkgs; lib.makeBinPath [ git kitty util-linux zoxide ];
+          binPath = with pkgs; lib.makeBinPath [ fzf git util-linux zoxide ];
         in
         ''
           #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe nushell} --no-config-file
@@ -35,6 +35,7 @@ in
   checks.unit = pkgs.runCommand "nsm-unit-tests" {
     nativeBuildInputs = with pkgs; [
       nushell
+      fzf
       bash
       commitizen
       coreutils

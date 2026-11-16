@@ -1,11 +1,9 @@
 use config.nu [get-config]
 use lib.nu [fail remove-path]
-use store.nu [get-display-path get-socket resolve-target save-session touch-session]
+use store.nu [get-display-path get-session resolve-target save-session touch-session]
 
 # Start a detached server for a session, in the directory of the project.
-def start-server [name: string, path: path]: nothing -> nothing {
-    let socket = (get-socket $name)
-
+def start-server [name: string, path: path, socket: path]: nothing -> nothing {
     remove-path $socket
 
     try {
@@ -25,51 +23,12 @@ def start-server [name: string, path: path]: nothing -> nothing {
     }
 }
 
-# Open a session in a kitty tab, or in the current terminal. The tab runs the UI of the server and closes on `:detach`.
-def open-session [name: string, path: path, --here]: nothing -> nothing {
-    let socket = (get-socket $name)
-    let kitty = $env.KITTY_LISTEN_ON?
-
+# Open a session in the current terminal. The UI closes on `:detach`.
+def open-session [name: string, path: path, socket: path]: nothing -> nothing {
     touch-session $name
 
-    if ($kitty | is-not-empty) {
-        let expression = [
-            'setenv("KITTY_LISTEN_ON", '
-            ($kitty | to json)
-            ')'
-        ] | str join
-
-        nvim --clean --server $socket --remote-expr $expression | ignore
-    }
-
-    if $here or ($kitty | is-empty) {
-        print $'Opening ($name) (get-display-path $path)…'
-        nvim --server $socket --remote-ui
-        return
-    }
-
-    let focus = kitten @ focus-tab --match $'env:NSM_SESSION=($name)' | complete
-
-    if $focus.exit_code != 0 {
-        print $'Opening ($name) (get-display-path $path)…'
-
-        let launch = [
-            launch
-            --type=tab
-            --tab-title
-            $name
-            --cwd
-            $path
-            --env
-            $'NSM_SESSION=($name)'
-            nvim
-            --server
-            $socket
-            --remote-ui
-        ]
-
-        kitten @ ...$launch | ignore
-    }
+    print $'Opening ($name) (get-display-path $path)…'
+    nvim --server $socket --remote-ui
 }
 
 # Check whether a server answers on a socket.
@@ -97,7 +56,8 @@ export def wait-until [check: closure]: nothing -> bool {
 # Return whether a running server has listed buffers with unsaved changes.
 export def has-unsaved-changes [name: string]: nothing -> bool {
     let expression = 'len(filter(getbufinfo({"buflisted": 1}), {_, b -> b.changed}))'
-    let result = nvim --clean --server (get-socket $name) --remote-expr $expression | complete
+    let socket = (get-session $name).socket
+    let result = nvim --clean --server $socket --remote-expr $expression | complete
 
     if $result.exit_code != 0 {
         return false
@@ -106,21 +66,27 @@ export def has-unsaved-changes [name: string]: nothing -> bool {
     ($result.stdout | str trim) != '0'
 }
 
+# Create the session when it is missing, and start its server when it is stopped.
+export def start-session [target: string]: nothing -> record<name: string, path: string, socket: string> {
+    let target_session = resolve-target $target
+    let session = save-session $target_session.name $target_session.path
+
+    if not (is-alive $session.socket) {
+        start-server $session.name $session.path $session.socket
+    }
+
+    $session
+}
+
 # Create the session when it is missing, start its server when it is stopped, and open it.
-export def connect-session [target: oneof<string, nothing>, --here]: nothing -> nothing {
+export def connect-session [target: oneof<string, nothing>]: nothing -> nothing {
     if $target == null {
         return
     }
 
-    let session = resolve-target $target
+    let session = start-session $target
 
-    save-session $session.name $session.path
-
-    if not (is-alive (get-socket $session.name)) {
-        start-server $session.name $session.path
-    }
-
-    open-session $session.name $session.path --here=$here
+    open-session $session.name $session.path $session.socket
 }
 
 # Return the arguments that restore a session file, when one is configured and exists.
