@@ -1,0 +1,55 @@
+                                                                           *nsm*
+                                                                          *:Nsm*
+                                                            *<Plug>(nsm-switch)*
+*nsm.nvim* Neovim Server Manager
+
+Open the session picker for the detached Neovim servers that nsm keeps.
+
+`:Nsm` and the `<Plug>(nsm-switch)` mapping open the picker in a kitty
+overlay. They need `kitten` and the `KITTY_LISTEN_ON` variable.
+
+------------------------------------------------------------------------------
+Class ~
+{nsm.Config}
+Fields ~
+{keymap} `(string|false|nil)` Keymap for the session picker. Defaults to "<leader>w". Use false for no mapping.
+
+------------------------------------------------------------------------------
+                                                                 *nsm.buffers()*
+                                `nsm.buffers`()
+Return the listed buffer names, shortened against the home and the current directory.
+
+The result is joined with a newline and used by the picker preview.
+
+Return ~
+`(string)`
+
+------------------------------------------------------------------------------
+                                                                  *nsm.switch()*
+                                 `nsm.switch`()
+Open the session picker in a kitty overlay.
+
+Forward the current session to the picker and run `nsm switch` detached.
+Notify a warning and do nothing outside kitty.
+
+------------------------------------------------------------------------------
+                                                                   *nsm.setup()*
+                              `nsm.setup`({opts})
+Change the mapping of the plugin.
+
+Leave the plugin defaults alone when `opts` is missing. Pass `keymap = false`
+to remove the plugin mapping. A mapping that the user owns is never removed.
+
+Parameters ~
+{opts} `(nsm.Config|nil)`
+
+
+==============================================================================
+------------------------------------------------------------------------------
+                                                                    *nsm-health*
+Health check for nsm.
+
+Run it with `:checkhealth nsm`.
+
+
+ vim:tw=78:ts=8:noet:ft=help:norl:

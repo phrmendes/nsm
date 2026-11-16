@@ -1,0 +1,13 @@
+[rules]
+# A pipe to `ignore` waits for the detached Neovim server to close the pipe, so the call redirects to /dev/null.
+ignore_over_dev_null = "off"
+# The quotes mark a text that has a dash, a slash, a colon or a regex character, so it reads as text.
+string_may_be_bare = "off"
+# The pipeline discards the output of a command on purpose.
+redundant_ignore = "off"
+# The error of an external command stops the script, and a `try` that only repeats it adds noise.
+unhandled_external_error = "off"
+# The test runner runs each test in its own Nushell, so that one test cannot change the state of another.
+redundant_nu_subprocess = "off"
+# A named parameter of a pure function reads better than input from a pipeline.
+positional_to_pipeline = "off"
