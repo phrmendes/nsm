@@ -90,7 +90,7 @@ Set your project roots in `~/.config/.nsm.nuon`:
 ```nuon
 {
   projects: ["~/Projects", "/mnt/external/projects"]
-  icons: { running: "🟢", stored: "⚫", directory: "📁" }
+  icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
   restore: { file: "Session.vim" }
 }
 ```
@@ -149,6 +149,8 @@ This project uses [devenv](https://devenv.sh).
 devenv test              # run the CLI and plugin tests
 devenv tasks run doc:run # regenerate doc/nsm.txt
 ```
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org). Each push to `main` bumps the version from them, and the workflow publishes the AppImage and `install.sh` for the new tag.
 
 ## License
 
