@@ -4,34 +4,35 @@ let
   inherit (pkgs) lib;
 
   nushell = pkgs.nushell.withPlugins [ pkgs.nushellPlugins.skim ];
+in
+{
+  packages = {
+    nsm = pkgs.writeTextFile {
+      name = "nsm";
+      destination = "/bin/nsm";
+      executable = true;
+      text =
+        let
+          binPath = with pkgs; lib.makeBinPath [ git kitty util-linux zoxide ];
+        in
+        ''
+          #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe nushell} --no-config-file
+          ${builtins.readFile (root + "/cli/main.nu")}
 
-  nsmScript = pkgs.writers.makeScriptWriter {
-    interpreter = "${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe nushell} --no-config-file";
-  } "/bin/nsm" (builtins.readFile (root + "/cli/main.nu"));
+          $env.PATH = ($env.PATH | prepend [${
+            lib.concatMapStrings (path: " \"${path}\"") (lib.splitString ":" binPath)
+          }])
+        '';
+    };
 
-  nsm = pkgs.symlinkJoin {
-    name = "nsm";
-    paths = [ nsmScript ];
-    nativeBuildInputs = [ pkgs.makeWrapper ];
-    postBuild = ''
-      wrapProgram $out/bin/nsm --prefix PATH : ${
-        lib.makeBinPath [
-          pkgs.git
-          pkgs.kitty
-          pkgs.util-linux
-          pkgs.zoxide
-        ]
-      }
-    '';
+    neovimPlugin = pkgs.vimUtils.buildVimPlugin {
+      pname = "nsm.nvim";
+      version = "1.0.0";
+      src = root;
+    };
   };
 
-  neovimPlugin = pkgs.vimUtils.buildVimPlugin {
-    pname = "nsm.nvim";
-    version = "0.1.0";
-    src = root;
-  };
-
-  unitTests = pkgs.runCommand "nsm-unit-tests" {
+  checks.unit = pkgs.runCommand "nsm-unit-tests" {
     nativeBuildInputs = with pkgs; [
       nushell
       bash
@@ -51,13 +52,4 @@ let
     diff -u ${root}/doc/nsm.txt $TMPDIR/doc/nsm.txt
     touch $out
   '';
-in
-{
-  packages = {
-    inherit nsm neovimPlugin;
-  };
-
-  checks = {
-    unit = unitTests;
-  };
 }
