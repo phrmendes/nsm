@@ -747,3 +747,20 @@ def "test get-restore-args" []: nothing -> nothing {
 
     remove-path $root
 }
+
+# Verify that every local commit message passes the Commitizen check.
+def "test commit-messages-follow-conventional-commits" []: nothing -> nothing {
+    for hash in (git log --format=%H | lines) {
+        let file = mktemp
+        write-text $file (git log -1 --format=%B $hash | str trim)
+
+        let result = cz check --commit-msg-file $file | complete
+
+        assert equal $result.exit_code 0 $'($hash): ($result.stderr)'
+        remove-path $file
+    }
+
+    let bad = cz check -m 'add stuff' | complete
+
+    assert ($bad.exit_code != 0) 'a non-conventional message must fail'
+}

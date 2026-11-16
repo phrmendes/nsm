@@ -36,6 +36,7 @@ in
     nativeBuildInputs = with pkgs; [
       nushell
       bash
+      commitizen
       coreutils
       git
       neovim

@@ -10,6 +10,7 @@ in
   };
 
   packages = with pkgs; [
+    commitizen
     git
     kitty
     neovim
@@ -24,6 +25,14 @@ in
   env = {
     NU_LIB_DIRS = toString ./cli;
     MINI_NVIM = "${pkgs.vimPlugins.mini-nvim}";
+  };
+
+  git-hooks.hooks.commitizen = {
+    enable = true;
+    name = "commitizen";
+    entry = "${pkgs.commitizen}/bin/cz check --commit-msg-file";
+    language = "system";
+    stages = [ "commit-msg" ];
   };
 
   enterTest = ''

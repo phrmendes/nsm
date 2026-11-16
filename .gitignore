@@ -3,3 +3,4 @@
 doc/tags
 result
 result-*
+.pre-commit-config.yaml

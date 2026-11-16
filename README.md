@@ -93,6 +93,19 @@ Create `~/.config/.nsm.nuon` to set the default projects folder and the picker i
 
 The flake bundles Nushell with the skim plugin. The packaged `nsm` still needs `nvim` on `PATH`.
 
+## Commits
+
+Use Conventional Commits: `type(scope)!: summary`, then one short paragraph that explains why. A `commit-msg` hook installed by devenv runs `cz check`, so enter the environment once with `devenv shell` or `direnv allow` before committing.
+
+## Releases
+
+Commitizen owns the version and the changelog. The version lives in `.cz.toml`.
+
+```bash
+cz changelog     # print the changelog for the next release
+cz bump --yes    # bump the version, update CHANGELOG.md, and tag
+```
+
 ## Development
 
 This project uses [devenv](https://devenv.sh).
