@@ -3,7 +3,8 @@
 --- Open the session picker for the detached Neovim servers that nsm keeps.
 ---
 --- `:Nsm` and the `<Plug>(nsm-switch)` mapping switch the current UI to the
---- chosen session with `:connect`.
+--- chosen session with `:connect`. `:Nsm kill` stops a chosen session, and
+--- `:Nsm new` starts one for a directory.
 ---
 --- Usage ~
 --- *nsm-usage*
@@ -19,8 +20,8 @@
 --- - `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k`: short forms.
 ---
 --- Pass `--scope <path>` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE`,
---- to limit the picker to one directory. `nsm kill` refuses unsaved buffers;
---- pass `--force` to override it. `:detach` keeps the server running.
+--- to limit the picker to one directory. `nsm kill` refuses unsaved buffers.
+--- Pass `--force` to override it. `:detach` keeps the server running.
 ---
 --- Configuration ~
 --- *nsm-configuration*
@@ -39,14 +40,13 @@
 --- `PROJECTS_DIR` is not read. `restore.file` is optional and runs project
 --- Vimscript, so enable it only for trusted projects.
 ---
---- SSH hosts ~
---- *nsm-ssh*
+--- Remote use ~
+--- *nsm-remote*
 ---
---- `:Nsm` also lists the `Host` aliases in `~/.ssh/config`, if Neovim supports
---- `:connect ssh://`. Choosing one connects to that host. Neovim uses the
---- `nvim` in the `PATH` of the host when that version is new enough, otherwise
---- it installs its own. It copies your local config to `~/.config/nvim-remote/`
---- and runs it with `NVIM_APPNAME=nvim-remote`. The remote host needs no `nsm`.
+--- For SSH hosts, use `:connect ssh://<host>`. Neovim lists the hosts of
+--- `~/.ssh/config` in its own menu, installs its own `nvim` on the host, and
+--- copies your config there. To switch projects on that host, install `nsm`
+--- with `fzf` and `git` there, then run `:Nsm` inside the remote session.
 ---
 --- Picker rows ~
 --- *nsm-rows*
@@ -54,22 +54,25 @@
 --- `nsm pick` prints one JSON object per row. The fields are:
 ---
 --- - `label`: the text that the picker shows.
---- - `name`: the session name, or null for a directory or a host.
---- - `path`: the directory, or null for a host.
---- - `source`: `running`, `stored`, `directory`, `zoxide`, or `host`.
---- - `address`: the `ssh://` address of a host row.
+--- - `name`: the session name, or null for a directory.
+--- - `path`: the directory.
+--- - `source`: `running`, `stored`, `directory`, or `zoxide`.
 ---
 --- Requirements ~
 --- *nsm-requirements*
 ---
---- - Neovim 0.12+ with `:connect ssh://` for SSH hosts
---- - `nsm` on `PATH`, plus `nvim` and `git`
---- - `fzf` on `PATH`
+--- - Linux on x86_64 and Neovim 0.12+
+--- - `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, and `util-linux`
+--- - `git` on `PATH` to name a session after its repository root
 --- - `zoxide` on `PATH` for recent directories
 ---
 ---@tag nsm
 ---@tag :Nsm
+---@tag :Nsm-kill
+---@tag :Nsm-new
 ---@tag <Plug>(nsm-switch)
+---@tag <Plug>(nsm-kill)
+---@tag <Plug>(nsm-new)
 
 ---@class nsm.Config
 ---@field keymap string|false|nil Keymap for the session picker. Defaults to "<leader>w". Use false for no mapping.
@@ -79,71 +82,9 @@ local nsm = {}
 local mapped
 local scope
 
---- Strip the ANSI colour codes from a CLI message.
----
----@param text string|nil
----@return string
----@private
-local function strip_ansi(text) return ((text or ""):gsub("\27%[[%d;]*m", "")) end
+local cli = require("nsm.cli")
 
---- Notify an error, without the ANSI colour codes of the CLI.
----
----@param err any
----@private
-local function notify_error(err) vim.notify(strip_ansi(tostring(err)), vim.log.levels.ERROR) end
-
---- Notify the failure of a command.
----
----@param command string[]
----@param result vim.SystemCompleted
----@private
-local function fail(command, result)
-  local stderr = (result.stderr or ""):gsub("%s+$", "")
-  local fallback = "`" .. table.concat(command, " ") .. "` failed"
-  notify_error(stderr ~= "" and stderr or fallback)
-end
-
---- Run a command and return its trimmed stdout, or notify its failure.
----
----@param command string[]
----@return string|nil
----@private
-local function run(command)
-  local ok, result = pcall(function() return vim.system(command, { text = true }):wait() end)
-
-  if not ok then
-    notify_error(result)
-    return nil
-  end
-
-  if result.code ~= 0 then
-    fail(command, result)
-    return nil
-  end
-
-  return ((result.stdout or ""):gsub("%s+$", ""))
-end
-
---- Run a command and call `on_success` with its trimmed stdout.
----
---- The callback runs after `nsm` exits. A failure notifies instead.
----
----@param command string[]
----@param on_success fun(stdout: string)
----@private
-local function run_async(command, on_success)
-  local on_exit = vim.schedule_wrap(function(result)
-    if result.code ~= 0 then
-      fail(command, result)
-      return
-    end
-
-    on_success(vim.trim(result.stdout or ""))
-  end)
-
-  local ok, process = pcall(vim.system, command, { text = true }, on_exit)
-  if not ok then notify_error(process) end
-end
+local UNSAVED = cli.UNSAVED
 
 --- Return the name of the row, or its path when it has no session.
 ---
@@ -155,40 +96,38 @@ local function get_target(item)
   return item.path
 end
 
---- Return whether Neovim supports `:connect ssh://`.
----
----@return boolean
----@private
-local function has_remote_ssh() return #vim.fn.getcompletion("remote-ssh", "help") > 0 end
+---@class nsm.PickOptions
+---@field sessions boolean|nil Only list sessions.
 
---- Ask for a session or directory with `vim.ui.select`.
+--- Ask for a row with `vim.ui.select`.
 ---
+---@param opts nsm.PickOptions
 ---@param on_choice fun(item: table)
 ---@private
-local function pick(on_choice)
+local function pick(opts, on_choice)
   local command = { "nsm", "pick" }
-  if has_remote_ssh() then table.insert(command, "--hosts") end
+  if opts.sessions then table.insert(command, "--sessions") end
   if scope and scope ~= "" then vim.list_extend(command, { "--scope", scope }) end
 
-  local output = run(command)
-  if not output then return end
+  cli.run(command, function(output)
+    local ok, items = pcall(vim.json.decode, output)
+    if not ok or type(items) ~= "table" then
+      vim.notify("nsm returned invalid picker data", vim.log.levels.ERROR)
+      return
+    end
 
-  local ok, items = pcall(vim.json.decode, output)
-  if not ok or type(items) ~= "table" then
-    vim.notify("nsm returned invalid picker data", vim.log.levels.ERROR)
-    return
-  end
+    if #items == 0 then
+      local message = opts.sessions and "There are no sessions." or "There is nothing to pick. Start a session with `nsm new <name>`."
+      vim.notify(message, vim.log.levels.WARN)
+      return
+    end
 
-  if #items == 0 then
-    vim.notify("There is nothing to pick. Start a session with `nsm new <name>`.", vim.log.levels.WARN)
-    return
-  end
-
-  vim.ui.select(items, {
-    prompt = "nsm> ",
-    format_item = function(item) return item.label end,
-  }, function(item)
-    if item then on_choice(item) end
+    vim.ui.select(items, {
+      prompt = "nsm> ",
+      format_item = function(item) return item.label end,
+    }, function(item)
+      if item then on_choice(item) end
+    end)
   end)
 end
 
@@ -197,7 +136,25 @@ end
 ---@param address string
 function nsm.connect(address)
   local ok, err = pcall(function() vim.cmd({ cmd = "connect", args = { address } }) end)
-  if not ok then notify_error(err) end
+  if not ok then cli.notify_error(err) end
+end
+
+--- Start a session and attach the current UI to its socket.
+---
+---@param target string
+---@private
+local function start_and_connect(target)
+  cli.run({ "nsm", "start", target }, function(socket)
+    if socket and socket ~= "" then nsm.connect(socket) end
+  end)
+end
+
+--- Notify the output of a command when it has any.
+---
+---@param stdout string
+---@private
+local function notify_output(stdout)
+  if stdout ~= "" then vim.notify(stdout) end
 end
 
 --- Open the picker and switch the current UI to the chosen session.
@@ -206,17 +163,62 @@ end
 --- its server and attach it to the chosen server with `:connect`.
 ---
 function nsm.switch()
-  pick(function(item)
-    if item.source == "host" and item.address then
-      nsm.connect(item.address)
-      return
-    end
+  pick({}, function(item) start_and_connect(get_target(item)) end)
+end
 
-    run_async({ "nsm", "start", get_target(item) }, function(socket)
-      if socket and socket ~= "" then nsm.connect(socket) end
+--- Pick a session and stop it, with a force stop when it has unsaved changes.
+---
+--- `nsm kill` exits with code 3 when it refuses the session, so the plugin can
+--- offer a force stop.
+---
+function nsm.kill()
+  pick({ sessions = true }, function(item)
+    local target = get_target(item)
+    local command = { "nsm", "kill", target }
+
+    cli.run(command, notify_output, function(result)
+      if result.code ~= UNSAVED then
+        cli.notify_error(cli.get_message(command, result))
+        return
+      end
+
+      vim.ui.select({ "Force stop", "Cancel" }, { prompt = cli.get_message(command, result) }, function(choice)
+        if choice == "Force stop" then cli.run({ "nsm", "kill", "--force", target }, notify_output) end
+      end)
     end)
   end)
 end
+
+--- Ask for a directory, then start a session for it and attach the current UI.
+---
+function nsm.new()
+  vim.ui.input({ prompt = "nsm directory> ", default = vim.fn.getcwd(), completion = "dir" }, function(input)
+    if not input or input == "" then return end
+
+    start_and_connect(vim.fs.normalize(vim.fn.fnamemodify(input, ":p")))
+  end)
+end
+
+-- Each name is also a function of the plugin.
+local subcommands = { "kill", "new" } ---@type string[]
+
+--- Run a `:Nsm` subcommand by name, or switch when the name is empty.
+---
+---@param name string
+function nsm.command(name)
+  if name == "" then
+    nsm.switch()
+  elseif vim.tbl_contains(subcommands, name) then
+    nsm[name]()
+  else
+    vim.notify("Unknown subcommand: " .. name, vim.log.levels.ERROR)
+  end
+end
+
+--- Return the subcommands of `:Nsm`, for the command completion.
+---
+---@return string[]
+function nsm.complete() return vim.deepcopy(subcommands) end
 
 --- Change the mapping of the plugin.
 ---

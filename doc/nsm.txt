@@ -1,12 +1,17 @@
                                                                            *nsm*
                                                                           *:Nsm*
+                                                                     *:Nsm-kill*
+                                                                      *:Nsm-new*
                                                             *<Plug>(nsm-switch)*
+                                                              *<Plug>(nsm-kill)*
+                                                               *<Plug>(nsm-new)*
 *nsm.nvim* Neovim Server Manager
 
 Open the session picker for the detached Neovim servers that nsm keeps.
 
 `:Nsm` and the `<Plug>(nsm-switch)` mapping switch the current UI to the
-chosen session with `:connect`.
+chosen session with `:connect`. `:Nsm kill` stops a chosen session, and
+`:Nsm new` starts one for a directory.
 
 Usage ~
 *nsm-usage*
@@ -22,8 +27,8 @@ Usage ~
 - `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k`: short forms.
 
 Pass `--scope <path>` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE`,
-to limit the picker to one directory. `nsm kill` refuses unsaved buffers;
-pass `--force` to override it. `:detach` keeps the server running.
+to limit the picker to one directory. `nsm kill` refuses unsaved buffers.
+Pass `--force` to override it. `:detach` keeps the server running.
 
 Configuration ~
 *nsm-configuration*
@@ -42,14 +47,13 @@ Create `~/.config/.nsm.nuon`:
 `PROJECTS_DIR` is not read. `restore.file` is optional and runs project
 Vimscript, so enable it only for trusted projects.
 
-SSH hosts ~
-*nsm-ssh*
+Remote use ~
+*nsm-remote*
 
-`:Nsm` also lists the `Host` aliases in `~/.ssh/config`, if Neovim supports
-`:connect ssh://`. Choosing one connects to that host. Neovim uses the
-`nvim` in the `PATH` of the host when that version is new enough, otherwise
-it installs its own. It copies your local config to `~/.config/nvim-remote/`
-and runs it with `NVIM_APPNAME=nvim-remote`. The remote host needs no `nsm`.
+For SSH hosts, use `:connect ssh://<host>`. Neovim lists the hosts of
+`~/.ssh/config` in its own menu, installs its own `nvim` on the host, and
+copies your config there. To switch projects on that host, install `nsm`
+with `fzf` and `git` there, then run `:Nsm` inside the remote session.
 
 Picker rows ~
 *nsm-rows*
@@ -57,17 +61,16 @@ Picker rows ~
 `nsm pick` prints one JSON object per row. The fields are:
 
 - `label`: the text that the picker shows.
-- `name`: the session name, or null for a directory or a host.
-- `path`: the directory, or null for a host.
-- `source`: `running`, `stored`, `directory`, `zoxide`, or `host`.
-- `address`: the `ssh://` address of a host row.
+- `name`: the session name, or null for a directory.
+- `path`: the directory.
+- `source`: `running`, `stored`, `directory`, or `zoxide`.
 
 Requirements ~
 *nsm-requirements*
 
-- Neovim 0.12+ with `:connect ssh://` for SSH hosts
-- `nsm` on `PATH`, plus `nvim` and `git`
-- `fzf` on `PATH`
+- Linux on x86_64 and Neovim 0.12+
+- `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, and `util-linux`
+- `git` on `PATH` to name a session after its repository root
 - `zoxide` on `PATH` for recent directories
 
 ------------------------------------------------------------------------------
@@ -76,6 +79,12 @@ Class ~
 Fields ~
 {keymap} `(string|false|nil)` Keymap for the session picker. Defaults to "<leader>w". Use false for no mapping.
 {scope} `(string|nil)` Only list rows under this directory.
+
+------------------------------------------------------------------------------
+Class ~
+{nsm.PickOptions}
+Fields ~
+{sessions} `(boolean|nil)` Only list sessions.
 
 ------------------------------------------------------------------------------
                                                                  *nsm.connect()*
@@ -92,6 +101,35 @@ Open the picker and switch the current UI to the chosen session.
 
 Start the chosen session when it is stopped, then detach the current UI from
 its server and attach it to the chosen server with `:connect`.
+
+------------------------------------------------------------------------------
+                                                                    *nsm.kill()*
+                                  `nsm.kill`()
+Pick a session and stop it, with a force stop when it has unsaved changes.
+
+`nsm kill` exits with code 3 when it refuses the session, so the plugin can
+offer a force stop.
+
+------------------------------------------------------------------------------
+                                                                     *nsm.new()*
+                                  `nsm.new`()
+Ask for a directory, then start a session for it and attach the current UI.
+
+------------------------------------------------------------------------------
+                                                                 *nsm.command()*
+                             `nsm.command`({name})
+Run a `:Nsm` subcommand by name, or switch when the name is empty.
+
+Parameters ~
+{name} `(string)`
+
+------------------------------------------------------------------------------
+                                                                *nsm.complete()*
+                                `nsm.complete`()
+Return the subcommands of `:Nsm`, for the command completion.
+
+Return ~
+`(string[])`
 
 ------------------------------------------------------------------------------
                                                                    *nsm.setup()*

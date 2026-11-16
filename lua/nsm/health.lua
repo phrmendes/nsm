@@ -32,12 +32,6 @@ function health.check()
     "Upgrade to Neovim 0.12 to switch sessions in place.",
     "error"
   )
-  report(
-    ":connect ssh://",
-    vim.fn.getcompletion("remote-ssh", "help")[1] ~= nil and "available" or nil,
-    "Upgrade to a Neovim build with remote-ssh to list SSH hosts.",
-    "warn"
-  )
   report("fzf", vim.fn.exepath("fzf"), "Install fzf for the terminal picker.", "warn")
   report("zoxide", vim.fn.exepath("zoxide"), "Install zoxide to list recent directories.", "warn")
 end
