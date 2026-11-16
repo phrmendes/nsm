@@ -1,21 +1,50 @@
 name: release
 
 on:
+  pull_request:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: write
 
 jobs:
-  release:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: cachix/install-nix-action@v31
 
+      - name: Run the checks
+        run: nix flake check
+
+  release:
+    needs: check
+    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'bump:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Bump the version and tag it
+        uses: commitizen-tools/commitizen-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          changelog_increment_filename: body.md
+
+      - name: Read the new tag
+        id: tag
+        run: |
+          tag=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -n 1)
+          echo "name=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: cachix/install-nix-action@v31
+        if: steps.tag.outputs.name != ''
+
       - name: Build the AppImage
+        if: steps.tag.outputs.name != ''
         run: |
           nix build .#nsm-appimage
           cp -L result nsm-x86_64.AppImage
@@ -23,17 +52,20 @@ jobs:
           sha256sum nsm-x86_64.AppImage > nsm-x86_64.AppImage.sha256
 
       - name: Smoke test the AppImage
+        if: steps.tag.outputs.name != ''
         run: |
           APPIMAGE_EXTRACT_AND_RUN=1 ./nsm-x86_64.AppImage | grep -q switch
 
       - name: Publish the release
+        if: steps.tag.outputs.name != ''
         env:
           GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.name }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
+          gh release create "$TAG" \
             --verify-tag \
-            --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --title "$TAG" \
+            --notes-file body.md \
             nsm-x86_64.AppImage \
             nsm-x86_64.AppImage.sha256 \
             scripts/install.sh
