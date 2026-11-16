@@ -111,7 +111,7 @@ def stop-session [name: string]: nothing -> nothing {
 def "main kill" [
     name?: string # The session to stop
     --all (-a) # Stop every session
-    --force # Stop a session even when it has unsaved changes
+    --force (-f) # Stop a session even when it has unsaved changes
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
     create-store

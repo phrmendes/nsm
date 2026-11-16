@@ -60,7 +60,7 @@ Inside kitty, `:Nsm` and the mapping open the picker in an overlay. Run `:checkh
 
 The picker opens in the lower half of the terminal. To list only sessions under one directory, pass `--scope /path/to/folder` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE=/path/to/folder`.
 
-`nsm kill` refuses to stop a session that has unsaved buffers. Pass `--force`, or use `--all --force` to stop everything.
+`nsm kill` refuses to stop a session that has unsaved buffers. Pass `--force` (`-f`), or use `--all --force` to stop everything.
 
 Inside kitty, nsm opens one tab per session and focuses an existing tab. Run `:detach` in Neovim to detach the UI and keep the server running. Outside kitty, use `--here` to attach in the current terminal. `:detach` is the safe exit, because the server keeps its buffers. `nsm kill` stops the server and loses unsaved changes.
 
