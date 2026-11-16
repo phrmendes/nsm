@@ -66,6 +66,17 @@ local scope
 ---@private
 local function strip_ansi(text) return ((text or ""):gsub("\27%[[%d;]*m", "")) end
 
+--- Notify the failure of a command.
+---
+---@param command string[]
+---@param result vim.SystemCompleted
+---@private
+local function fail(command, result)
+  local stderr = (result.stderr or ""):gsub("%s+$", "")
+  local fallback = "`" .. table.concat(command, " ") .. "` failed"
+  vim.notify(strip_ansi(stderr ~= "" and stderr or fallback), vim.log.levels.ERROR)
+end
+
 --- Run a command and return its trimmed stdout, or notify its failure.
 ---
 ---@param command string[]
@@ -79,15 +90,33 @@ local function run(command)
     return nil
   end
 
-  local stderr = (result.stderr or ""):gsub("%s+$", "")
-
   if result.code ~= 0 then
-    local fallback = "`" .. table.concat(command, " ") .. "` failed"
-    vim.notify(strip_ansi(stderr ~= "" and stderr or fallback), vim.log.levels.ERROR)
+    fail(command, result)
     return nil
   end
 
   return ((result.stdout or ""):gsub("%s+$", ""))
+end
+
+--- Run a command and call `on_success` with its trimmed stdout.
+---
+--- The callback runs after `nsm` exits. A failure notifies instead.
+---
+---@param command string[]
+---@param on_success fun(stdout: string)
+---@private
+local function run_async(command, on_success)
+  local on_exit = vim.schedule_wrap(function(result)
+    if result.code ~= 0 then
+      fail(command, result)
+      return
+    end
+
+    on_success(vim.trim(result.stdout or ""))
+  end)
+
+  local ok, process = pcall(vim.system, command, { text = true }, on_exit)
+  if not ok then vim.notify(strip_ansi(tostring(process)), vim.log.levels.ERROR) end
 end
 
 --- Return the name of the row, or its path when it has no session.
@@ -142,10 +171,12 @@ end
 ---
 --- Start the chosen session when it is stopped, then detach the current UI from
 --- its server and attach it to the chosen server with `:connect`.
+---
 function nsm.switch()
   pick(function(item)
-    local socket = run({ "nsm", "start", get_target(item) })
-    if socket and socket ~= "" then nsm.connect(socket) end
+    run_async({ "nsm", "start", get_target(item) }, function(socket)
+      if socket and socket ~= "" then nsm.connect(socket) end
+    end)
   end)
 end
 
