@@ -4,6 +4,10 @@ let
   inherit (pkgs) lib;
 
   nushell = pkgs.nushell;
+  versionLine = lib.findFirst (line: lib.hasPrefix "version" line) "" (
+    lib.splitString "\n" (builtins.readFile (root + "/.cz.toml"))
+  );
+  version = lib.removeSuffix "\"" (lib.removePrefix "version = \"" (lib.trim versionLine));
 in
 {
   packages = {
@@ -27,7 +31,7 @@ in
 
     neovimPlugin = pkgs.vimUtils.buildVimPlugin {
       pname = "nsm.nvim";
-      version = "1.0.0";
+      inherit version;
       src = root;
     };
   };
