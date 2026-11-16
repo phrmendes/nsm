@@ -5,7 +5,7 @@ use ./fixtures.nu [
     query-store
     run-tests
 ]
-use ../../cli/store.nu [get-previous-session-name save-session]
+use ../../cli/store.nu [create-store get-previous-session-name save-session]
 use ../../cli/target.nu [resolve-target]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -100,6 +100,37 @@ def "test previous-session-selection-skips-unattached-sessions" []: nothing -> n
             }
 
             assert equal (get-previous-session-name) $case.expected $case.name
+        }
+    }
+}
+
+# Verify that the store migrates legacy attachment times only once.
+def "test create-store-migrates-only-legacy-attachment-times" []: nothing -> nothing {
+    let cases = [
+        [name, version, attached, expected];
+        ['a legacy timestamp moves to nanoseconds', 0, 1700000000, 1_700_000_000_000_000_000]
+        ['a legacy null stays null', 0, null, null]
+        ['a current version stays unchanged', 1, 1700000000, 1700000000]
+    ]
+
+    for case in $cases {
+        in-store {|root|
+            let db = $root | path join nsm sessions.db
+            save-session work $root
+            query-store $db $'pragma user_version = ($case.version)' | ignore
+            query-store $db 'update sessions set attached_at = :time where name = :name' --params {
+                time: $case.attached
+                name: work
+            } | ignore
+
+            create-store
+            create-store
+
+            let session = query-store $db 'select attached_at from sessions' | first
+            let version = query-store $db 'select user_version from pragma_user_version' | first
+
+            assert equal $session.attached_at $case.expected $case.name
+            assert equal $version.user_version 1 'the schema version is recorded'
         }
     }
 }

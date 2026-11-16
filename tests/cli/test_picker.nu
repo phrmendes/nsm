@@ -12,7 +12,7 @@ use ./fixtures.nu [
     with-shim-env
     write-text
 ]
-use ../../cli/picker.nu [list-candidates list-projects pick-candidate]
+use ../../cli/picker.nu [get-preview list-candidates list-projects pick-candidate]
 use ../../cli/store.nu [create-store get-session save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -133,5 +133,59 @@ def "test pick-prints-json-rows" []: nothing -> nothing {
                 source: stored
             } 'a missing socket is stored'
         }
+    }
+}
+
+# Verify that the scope keeps a directory and its children, never a sibling with the same prefix.
+def "test list-candidates-filters-by-scope" []: nothing -> nothing {
+    in-root {|root|
+        let inside = $root | path join proj
+        let deep = $inside | path join app
+        let sibling = $root | path join project
+        make-dir $deep
+        make-dir $sibling
+
+        with-shim-env $root ($root | path join bin) {
+            create-store
+            save-session inside $inside
+            save-session deep $deep
+            save-session sibling $sibling
+
+            let by_argument = list-candidates --sessions --scope $inside | get name | sort
+            assert equal $by_argument [deep inside] 'the scope and its children stay'
+            assert (not ($by_argument | any {|name| $name == sibling})) 'a sibling with the same prefix is dropped'
+
+            with-env {NSM_SCOPE: $sibling} {
+                assert equal (list-candidates --sessions | get name) [sibling] 'NSM_SCOPE alone filters'
+                assert equal (list-candidates --sessions --scope $inside | get name | sort) [deep inside] 'the argument wins over the variable'
+            }
+        }
+    }
+}
+
+# Verify that the preview shows the path, a Files heading, and at most thirty entries.
+def "test get-preview-shows-a-directory-listing" []: nothing -> nothing {
+    in-root {|root|
+        let small = $root | path join small
+        let large = $root | path join large
+        let missing = $root | path join missing
+        make-dir $small
+        make-dir $large
+        make-file ($small | path join alpha.txt)
+        make-file ($small | path join beta.txt)
+        for index in 1..35 {
+            make-file ($large | path join $'file-($index | fill --width 2 --character 0).txt')
+        }
+
+        let preview = get-preview {name: null, path: $small, source: 'directory'}
+        assert equal ($preview | lines | first) $small 'the preview starts with the path'
+        assert equal ($preview | lines | skip 1 | take 2) ['Files' ''] 'the heading follows the path'
+        assert equal ($preview | lines | skip 3) [alpha.txt beta.txt] 'the entries are listed'
+
+        let limited = get-preview {name: null, path: $large, source: 'directory'}
+        assert equal ($limited | lines | skip 3 | length) 30 'only thirty entries are listed'
+
+        let hint = get-preview {name: null, path: $missing, source: 'directory'}
+        assert equal ($hint | lines) [$missing '' 'The directory does not exist.']
     }
 }

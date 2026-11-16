@@ -264,6 +264,80 @@ T["integration"]["uses the real CLI output"] = function()
   eq(connects, { "/state/nsm/work.sock" })
 end
 
+T["health"] = test.new_set()
+
+local health_prelude = [=[
+  H.reports = {}
+  vim.health = {
+    start = function(message) table.insert(H.reports, { "start", message }) end,
+    ok = function(message) table.insert(H.reports, { "ok", message }) end,
+    warn = function(message) table.insert(H.reports, { "warn", message }) end,
+    error = function(message) table.insert(H.reports, { "error", message }) end,
+  }
+  package.loaded["nsm.health"] = nil
+  H.health = require("nsm.health")
+]=]
+
+T["health"]["reports every tool when they are installed"] = function()
+  local reports = child.lua([[
+    local dir = vim.fn.tempname()
+    vim.fn.mkdir(dir, "p")
+    for _, name in ipairs({ "nsm", "fzf", "zoxide" }) do
+      local path = dir .. "/" .. name
+      vim.fn.writefile({ "#!/usr/bin/env bash", "exit 0" }, path)
+      vim.uv.fs_chmod(path, 493)
+    end
+    vim.env.PATH = dir .. ":" .. vim.env.PATH
+
+    ]] .. health_prelude .. [[
+
+    H.health.check()
+    return H.reports
+  ]])
+
+  eq(reports[1], { "start", "nsm" })
+  eq(reports[2][1], "ok")
+  assert(reports[2][2]:find("nsm:") == 1)
+  eq(reports[3], { "ok", "Neovim 0.12 :connect: available" })
+  eq(reports[4], { "ok", ":connect ssh://: available" })
+  eq(reports[5][1], "ok")
+  eq(reports[6][1], "ok")
+  eq(#reports, 6)
+end
+
+T["health"]["reports missing tools with hints"] = function()
+  local reports = child.lua([[
+    vim.env.PATH = ""
+
+    ]] .. health_prelude .. [[
+
+    H.health.check()
+    return H.reports
+  ]])
+
+  eq(reports[1], { "start", "nsm" })
+  eq(reports[2][1], "error")
+  assert(reports[2][2]:find("nsm is not available") == 1)
+  eq(reports[3][1], "ok")
+  eq(reports[4][1], "ok")
+  eq(reports[5], { "warn", "fzf is not available" })
+  eq(reports[6], { "warn", "zoxide is not available" })
+end
+
+T["health"]["warns without remote-ssh support"] = function()
+  local reports = child.lua([[
+    vim.env.PATH = ""
+    vim.fn.getcompletion = function() return {} end
+
+    ]] .. health_prelude .. [[
+
+    H.health.check()
+    return H.reports
+  ]])
+
+  eq(reports[4], { "warn", ":connect ssh:// is not available" })
+end
+
 T["setup"] = test.new_set()
 
 T["setup"]["custom key replaces the default mapping"] = function()

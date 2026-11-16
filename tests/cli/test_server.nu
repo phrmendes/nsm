@@ -15,8 +15,9 @@ use ./fixtures.nu [
     spawn-server
     stop-server
     with-shim-env
+    write-text
 ]
-use ../../cli/server.nu [has-unsaved-changes is-alive wait-until]
+use ../../cli/server.nu [get-restore-args has-unsaved-changes is-alive wait-until]
 use ../../cli/store.nu [create-store get-session list-sessions save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -146,5 +147,92 @@ def "test start-runs-the-server-in-the-project" []: nothing -> nothing {
             let name = nvim --clean --server $socket --remote-expr '$NSM_SESSION' | complete
             assert equal ($name.stdout | str trim) 'demo' 'the server knows its session name'
         }
+    }
+}
+
+# Verify that the restore arguments follow the configuration and the file.
+def "test get-restore-args-returns-the-configured-session-file" []: nothing -> nothing {
+    in-root {|root|
+        let project = $root | path join project
+        let file = $project | path join Session.vim
+        make-dir $project
+        make-file $file
+
+        with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
+            assert equal (get-restore-args $project) [] 'no configuration'
+
+            write-text ($root | path join .nsm.nuon) ({restore: {file: 'Session.vim'}} | to nuon)
+            assert equal (get-restore-args $project) ['-S' $file] 'a configured file'
+
+            write-text ($root | path join .nsm.nuon) ({restore: {file: 'Missing.vim'}} | to nuon)
+            assert equal (get-restore-args $project) [] 'a missing file'
+
+            write-text ($root | path join .nsm.nuon) ({restore: {file: $file}} | to nuon)
+            assert equal (get-restore-args $project) ['-S' $file] 'an absolute path'
+        }
+    }
+}
+
+# Verify that a configured session file reaches the server command line.
+def "test start-passes-the-restore-file-to-the-server" []: nothing -> nothing {
+    in-root {|root|
+        let log = $root | path join calls.log
+        let project = $root | path join project
+        let file = $project | path join Session.vim
+        make-dir $project
+        make-file $file
+        write-text ($root | path join .nsm.nuon) ({restore: {file: 'Session.vim'}} | to nuon)
+        let bin = make-shims $root
+
+        with-shim-env $root $bin {
+            create-store
+            save-session demo $project
+
+            let result = with-env {XDG_CONFIG_HOME: $root} {
+                nu --no-config-file cli/main.nu start demo | complete
+            }
+
+            assert equal $result.exit_code 0 $result.stderr
+            assert equal (read-file $log | lines | first) $'--headless --listen ($root | path join nsm demo.sock) -S ($file)' 'the server restores the session file'
+        }
+    }
+}
+
+# Verify that kill --all refuses a dirty session and stops every clean one.
+def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> nothing {
+    in-store {|root|
+        let project = $root | path join project
+        let file = $project | path join notes.txt
+        make-dir $project
+        make-file $file
+        save-session clean $project
+        save-session dirty $project
+        let clean_socket = $root | path join clean.sock
+        let dirty_socket = $root | path join dirty.sock
+        set-socket $root clean $clean_socket
+        set-socket $root dirty $dirty_socket
+
+        finally {|| stop-server $dirty_socket} {
+            spawn-server $clean_socket
+            spawn-server $dirty_socket $file
+            nvim --server $dirty_socket --remote-send '<C-\><C-N>:normal! ix<CR>'
+            assert (wait-until { has-unsaved-changes dirty }) 'the buffer is modified'
+
+            let refused = nu --no-config-file cli/main.nu kill --all | complete
+            assert ($refused.exit_code != 0) 'kill --all refuses a dirty session'
+            assert ((($refused.stderr | ansi strip) =~ 'These sessions have unsaved changes: dirty.')) $refused.stderr
+            assert (is-alive $clean_socket) 'a refused kill --all keeps every server'
+
+            let forced = nu --no-config-file cli/main.nu kill --all --force | complete
+            assert equal $forced.exit_code 0 $forced.stderr
+            assert equal ($forced.stdout | lines | sort) ['Stopped clean.' 'Stopped dirty.']
+            assert (not (is-alive $clean_socket)) 'the clean server stops'
+            assert (not (is-alive $dirty_socket)) 'the dirty server stops'
+            assert equal (list-sessions) [] 'every session is gone'
+        }
+
+        let empty = nu --no-config-file cli/main.nu kill --all | complete
+        assert equal $empty.exit_code 0 $empty.stderr
+        assert (((($empty.stderr | ansi strip) =~ '\[W\]') and (($empty.stderr | ansi strip) =~ 'No sessions.'))) $empty.stderr
     }
 }
