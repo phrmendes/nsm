@@ -13,24 +13,19 @@ use store.nu [
     save-session
 ]
 
-# Create or attach to a session. The target is a session name or a directory. Without a target, pick one.
-def "main connect" [
-    target?: string # A session name or a directory
-    --here # Open the session in the current terminal, not in a kitty tab
-]: nothing -> nothing {
-    create-store
-
-    connect-session ($target | default {|| pick-candidate }) --here=$here
-}
-
 # Pick another session and open it. The picker does not list the current session.
 def "main switch" [
+    --scope: string = '' # Only pick sessions under this directory
     --here # Open the session in the current terminal, not in a kitty tab
 ]: nothing -> nothing {
     create-store
 
     let current = $env.NSM_SESSION?
-    let chosen = if $current == null { pick-candidate } else { pick-candidate --exclude $current }
+    let chosen = if $current == null {
+        pick-candidate --scope $scope
+    } else {
+        pick-candidate --exclude $current --scope $scope
+    }
 
     connect-session $chosen --here=$here
 }
@@ -50,20 +45,15 @@ def "main last" [
     connect-session $previous --here=$here
 }
 
-# Attach to a session that exists. Without a name, pick one of the sessions.
+# Create or attach to a session. The target is a session name or a directory. Without a target, pick one.
 def "main attach" [
-    name?: string # The session to attach to
+    target?: string # A session name or a directory
+    --scope: string = '' # Only pick sessions under this directory
     --here # Open the session in the current terminal, not in a kitty tab
 ]: nothing -> nothing {
     create-store
 
-    let target = $name | default {|| pick-candidate --sessions }
-
-    if $target != null {
-        get-session $target | ignore
-    }
-
-    connect-session $target --here=$here
+    connect-session ($target | default {|| pick-candidate --scope $scope }) --here=$here
 }
 
 # Create a session with a name of your choice for a directory, and open it.
@@ -99,43 +89,76 @@ def "main list" []: nothing -> nothing {
     print (format-sessions $sessions)
 }
 
+# Stop the server of a session and forget it.
+def stop-session [name: string]: nothing -> nothing {
+    let session = get-session $name
+
+    if (is-alive $session.socket) {
+        nvim --server $session.socket --remote-send '<C-\><C-N>:qall!<CR>'
+
+        if not (wait-until { not (is-alive $session.socket) }) {
+            fail $'The server of ($name) did not stop.' $name --text name
+        }
+    }
+
+    remove-path $session.socket
+    delete-session $name
+
+    print $'Stopped ($name).'
+}
+
 # Stop the server of a session and forget the session. Without a name, pick one of the sessions.
 def "main kill" [
     name?: string # The session to stop
-    --force # Stop the session even when it has unsaved changes
+    --all (-a) # Stop every session
+    --force # Stop a session even when it has unsaved changes
+    --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
     create-store
 
-    let target = $name | default {|| pick-candidate --sessions }
+    if $all {
+        let sessions = list-sessions
+
+        if ($sessions | is-empty) {
+            print 'No sessions.'
+            return
+        }
+
+        if not $force {
+            let dirty = $sessions
+            | where {|session| is-alive $session.socket }
+            | where {|session| has-unsaved-changes $session.name }
+            | get name
+
+            if not ($dirty | is-empty) {
+                fail $'These sessions have unsaved changes: ($dirty | str join ", "). Save them, or run `nsm kill --all --force`.'
+            }
+        }
+
+        for session in $sessions {
+            stop-session $session.name
+        }
+
+        return
+    }
+
+    let target = $name | default {|| pick-candidate --sessions --scope $scope }
 
     if $target == null {
         return
     }
 
-    let session = get-session $target
-
-    if (is-alive $session.socket) {
-        if not $force and (has-unsaved-changes $target) {
-            fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.' $name --text session
-        }
-
-        nvim --server $session.socket --remote-send '<C-\><C-N>:qall!<CR>'
-
-        if not (wait-until { not (is-alive $session.socket) }) {
-            fail $'The server of ($target) did not stop.' $name --text session
-        }
+    if not $force and (is-alive (get-socket $target)) and (has-unsaved-changes $target) {
+        fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.' $name --text session
     }
 
-    remove-path $session.socket
-    delete-session $target
-
-    print $'Stopped ($target).'
+    stop-session $target
 }
 
 # Print the subcommands of nsm.
 def main []: nothing -> nothing {
     let usage = [
-        'Use `connect` to open a session, `switch` or `last` to change session,'
+        'Use `attach` to open a session, `switch` or `last` to change session,'
         '`new` to name one, `list` to list them or `kill` to stop one.'
     ]
     | str join (char nl)
@@ -143,10 +166,20 @@ def main []: nothing -> nothing {
     print $usage
 }
 
-alias "main c" = main connect
+# Pick another session and open it.
 alias "main s" = main switch
+
+# Return to the previous session.
 alias "main l" = main last
+
+# Create or attach to a session.
 alias "main a" = main attach
+
+# Create a named session.
 alias "main n" = main new
+
+# Print sessions as a table.
 alias "main ls" = main list
+
+# Stop a session.
 alias "main k" = main kill

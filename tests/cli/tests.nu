@@ -8,7 +8,7 @@ use ./fixtures.nu [
     make-shim
     query-store
 ]
-use ../../cli/picker.nu [list-projects]
+use ../../cli/picker.nu [list-candidates list-projects]
 use ../../cli/server.nu [connect-session has-unsaved-changes is-alive wait-until]
 use ../../cli/render.nu [format-sessions]
 use ../../cli/store.nu [
@@ -49,7 +49,7 @@ def main []: nothing -> nothing {
 def "test main-prints-exact-help" []: nothing -> nothing {
     let result = nu --no-config-file cli/main.nu | complete
     let expected = [
-        'Use `connect` to open a session, `switch` or `last` to change session,'
+        'Use `attach` to open a session, `switch` or `last` to change session,'
         '`new` to name one, `list` to list them or `kill` to stop one.'
     ] | str join (char nl)
 
@@ -345,7 +345,7 @@ def "test previous-session-selection-skips-unattached-sessions" []: nothing -> n
 
 # Verify empty output, status markers, paths, and attached/unattached labels.
 def "test format-sessions-renders-state-cases" []: nothing -> nothing {
-    assert equal (format-sessions []) 'No sessions yet. Use nsm connect <directory> to start one.'
+    assert equal (format-sessions []) 'No sessions yet. Use nsm attach <directory> to start one.'
 
     let now = date now | into int
     let cases = [
@@ -541,5 +541,74 @@ def "test kill-guards-unsaved-changes" []: nothing -> nothing {
         assert equal $forced.exit_code 0 $forced.stderr
         assert (not (is-alive $socket)) 'forced kill stops the server'
         assert equal (list-sessions) [] 'forced kill removes the session'
+    }
+}
+
+# Verify that attach creates a missing session.
+def "test attach-creates-missing-session" []: nothing -> nothing {
+    let root = mktemp --directory
+    let bin = $root | path join bin
+    let log = $root | path join calls.log
+    let project = $root | path join project
+    let path = [$bin] | append $env.PATH | str join (char esep)
+    let bash = which bash | get --optional 0.path | default '/usr/bin/env bash'
+    make-dir $bin
+    make-dir $project
+    make-shim ($bin | path join kitten) --interpreter $bash
+    make-shim ($bin | path join nvim) --interpreter $bash
+
+    with-env {
+        XDG_STATE_HOME: $root
+        HOME: $root
+        PATH: $path
+        SHIM_LOG: $log
+        KITTY_LISTEN_ON: 'unix:/tmp/kitty'
+        SHIM_FOCUS_EXIT: '0'
+    } {
+        create-store
+        make-file (get-socket project)
+
+        let result = nu --no-config-file cli/main.nu attach $project | complete
+
+        assert equal $result.exit_code 0 $result.stderr
+        assert equal (get-session project | get path) $project
+    }
+
+    remove-path $root
+}
+
+# Verify that the short commands forward to the full commands.
+def "test short-commands-forward-to-full-commands" []: nothing -> nothing {
+    let root = mktemp --directory
+
+    with-env {XDG_STATE_HOME: $root, HOME: $root} {
+        let listed = nu --no-config-file cli/main.nu ls | complete
+        assert equal $listed.exit_code 0 $listed.stderr
+        assert (($listed.stdout | str trim) =~ 'No sessions yet.') $listed.stdout
+
+        let previous = nu --no-config-file cli/main.nu l | complete
+        assert ($previous.exit_code != 0) 'l must fail without a previous session'
+        assert (($previous.stderr =~ 'There is no previous session.')) $previous.stderr
+    }
+
+    remove-path $root
+}
+
+# Verify that kill --all removes every session and its socket.
+def "test kill-all-stops-every-session" []: nothing -> nothing {
+    in-store {|root|
+        save-session one $root
+        save-session two $root
+
+        let result = nu --no-config-file cli/main.nu k -a | complete
+
+        assert equal $result.exit_code 0 $result.stderr
+        assert equal (list-sessions) [] 'every session is gone'
+        assert (($result.stdout =~ 'Stopped one') and ($result.stdout =~ 'Stopped two')) $result.stdout
+        assert (not ((get-socket one) | path exists)) 'socket is removed'
+
+        let empty = nu --no-config-file cli/main.nu kill --all | complete
+        assert equal $empty.exit_code 0 $empty.stderr
+        assert (($empty.stdout =~ 'No sessions.')) $empty.stdout
     }
 }

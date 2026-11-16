@@ -3,7 +3,7 @@ use store.nu [get-display-path]
 # Return the text of a compact table of sessions, or the empty-state message.
 export def format-sessions [sessions: table]: nothing -> string {
     if ($sessions | is-empty) {
-        return 'No sessions yet. Use nsm connect <directory> to start one.'
+        return 'No sessions yet. Use nsm attach <directory> to start one.'
     }
 
     let width = $env.COLUMNS? | default 80 | into int

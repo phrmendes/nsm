@@ -13,13 +13,16 @@ The flake bundles Nushell with the skim plugin. The packaged `nsm` still needs `
 
 ## Commands
 
-- `nsm connect <name-or-directory>` creates or opens a session.
-- `nsm connect` opens the session picker.
+- `nsm attach <name-or-directory>` creates or opens a session.
+- `nsm attach` opens the session picker.
 - `nsm switch` opens the picker without the current session.
+- `nsm attach [name]` opens an existing session. Add `--create` to create it when missing.
 - `nsm last` returns to the previously attached session.
 - `nsm new <name> [path]` creates a named session.
 - `nsm list` prints sessions as a table.
-- `nsm kill [name]` stops a session. Without a name, it opens the session picker. It refuses to stop a session that has unsaved buffers, unless you pass `--force`.
+- `nsm kill [name]` stops a session. Without a name, it opens the session picker. Add `--all` to stop every session. It refuses to stop sessions that have unsaved buffers, unless you pass `--force`.
+
+The picker opens in the lower half of the terminal. To list only sessions under one directory, set `NSM_SCOPE=/path/to/folder` or pass `--scope /path/to/folder` to `attach`, `switch`, or `kill`.
 
 Inside kitty, nsm opens one tab per session and focuses an existing tab. Run `:detach` in Neovim to detach the UI and keep the server running. Outside kitty, use `--here` to attach in the current terminal. `:detach` is the safe exit, because the server keeps its buffers. `nsm kill` stops the server and loses unsaved changes.
 
