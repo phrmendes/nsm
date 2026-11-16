@@ -1,6 +1,28 @@
+use config.nu [get-config]
 use lib.nu [fail]
 use server.nu [is-alive]
-use store.nu [get-display-path get-socket list-recent-sessions]
+use store.nu [get-display-path list-recent-sessions]
+
+# Return the icon of a row.
+def get-icon [source: string, icons: record]: nothing -> string {
+    match $source {
+        'running' => $icons.running
+        'stored' => $icons.stored
+        _ => $icons.directory
+    }
+}
+
+# Return the label of a row: the icon, the session name when it has one, and the path.
+def get-label [row: record, icons: record]: nothing -> string {
+    let icon = get-icon $row.source $icons
+    let path = get-display-path $row.path
+
+    if ($row.name | is-empty) {
+        return $"($icon) ($path)"
+    }
+
+    $"($icon) ($row.name)  ($path)"
+}
 
 # Return the directories that zoxide knows.
 def list-zoxide []: nothing -> list<string> {
@@ -22,37 +44,22 @@ def in-scope [path: string, scope: string]: nothing -> bool {
     $target == $scope or ($target | str starts-with $"($scope)/")
 }
 
-# Return the names of the buffers of a running server, one on each line.
-def get-buffers [name: string]: nothing -> string {
-    let result = nvim --server (get-socket $name) --remote-expr "v:lua.require'nsm'.buffers()" | complete
-
-    if $result.exit_code != 0 {
-        return 'The nsm plugin is not loaded in this server.'
-    }
-
-    $result.stdout
-}
-
-# Return the text that the picker shows for a row: the directory, the buffers of a running server, or the files.
-def get-preview [candidate: record]: nothing -> string {
+# Return the text that the picker shows for a row: the path and the files in it.
+export def get-preview [candidate: record]: nothing -> string {
     if not ($candidate.path | path exists) {
         return [$candidate.path '' 'The directory does not exist.'] | str join (char nl)
     }
 
-    let body = if $candidate.source == 'running' {
-        get-buffers $candidate.name
-    } else {
-        try {
-            ls --short-names $candidate.path
-            | get name
-            | first 30
-            | str join (char nl)
-        } catch {|err|
-            fail $'Cannot list ($candidate.path): ($err.msg)'
-        }
+    let body = try {
+        ls --short-names $candidate.path
+        | get name
+        | first 30
+        | str join (char nl)
+    } catch {|err|
+        fail $'Cannot list ($candidate.path): ($err.msg)'
     }
 
-    [$candidate.path $candidate.source '' $body] | str join (char nl)
+    [$candidate.path 'Files' '' $body] | str join (char nl)
 }
 
 # Ask for a row with skim. Return its session name, or its directory when it has no session yet, or nothing on cancel.
@@ -79,7 +86,9 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
 
 # Return the git repositories under the projects directory.
 export def list-projects []: nothing -> list<string> {
+    let config = (get-config)
     let root = $env.PROJECTS_DIR?
+    let root = if ($root | is-empty) { $config.projects.dir } else { $root }
 
     if ($root | is-empty) or not ($root | path exists) {
         return []
@@ -90,10 +99,13 @@ export def list-projects []: nothing -> list<string> {
 
 # Return the rows of the picker: the sessions, then the zoxide directories and the projects that have no session yet.
 export def list-candidates [--exclude: string = '', --sessions, --scope: string = '']: nothing -> table {
-    let scope = if ($scope | is-empty) {
-        $env.NSM_SCOPE? | default ''
-    } else {
+    let config = (get-config)
+    let icons = $config.icons
+
+    let scope = if ($scope | is-not-empty) {
         $scope
+    } else {
+        $env.NSM_SCOPE?
     }
     let scope = if ($scope | is-empty) {
         ''
@@ -103,22 +115,27 @@ export def list-candidates [--exclude: string = '', --sessions, --scope: string 
 
     let known = list-recent-sessions
     | where name != $exclude
-    | insert source {|session| if (is-alive $session.socket) { 'running' } else { 'stored' } }
-    | insert label {|session| $"($session.source | fill --width 8) ($session.name)  (get-display-path $session.path)" }
+    | par-each {|session| $session | insert alive (is-alive $session.socket) }
+    | insert source {|session| if $session.alive { 'running' } else { 'stored' } }
+    | insert label {|session| get-label $session $icons }
     | select label name path source
 
     if $sessions {
         return ($known | where {|row| in-scope $row.path $scope })
     }
 
-    let directories = list-zoxide
-    | append (list-projects)
+    let directories = [
+        {|| list-zoxide }
+        {|| list-projects }
+    ]
+    | par-each {|job| do $job }
+    | flatten
     | uniq
     | where { ($in | path exists) and $in not-in $known.path }
     | wrap path
     | insert name null
     | insert source 'directory'
-    | insert label {|row| $"($row.source | fill --width 8) (get-display-path $row.path)" }
+    | insert label {|row| get-label $row $icons }
     | select label name path source
 
     $known | append $directories | where {|row| in-scope $row.path $scope }

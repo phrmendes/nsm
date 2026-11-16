@@ -7,9 +7,11 @@ use ./fixtures.nu [
     make-file
     make-shim
     query-store
+    write-text
 ]
-use ../../cli/picker.nu [list-candidates list-projects]
-use ../../cli/server.nu [connect-session has-unsaved-changes is-alive wait-until]
+use ../../cli/config.nu [get-config]
+use ../../cli/picker.nu [get-preview list-candidates list-projects]
+use ../../cli/server.nu [connect-session get-restore-args has-unsaved-changes is-alive wait-until]
 use ../../cli/render.nu [format-sessions]
 use ../../cli/store.nu [
     check-name
@@ -611,4 +613,137 @@ def "test kill-all-stops-every-session" []: nothing -> nothing {
         assert equal $empty.exit_code 0 $empty.stderr
         assert (($empty.stdout =~ 'No sessions.')) $empty.stdout
     }
+}
+
+# Verify that the preview shows the path, a Files heading, and the directory entries.
+def "test get-preview-lists-files" []: nothing -> nothing {
+    let root = mktemp --directory
+    make-dir ($root | path join project)
+    make-file ($root | path join project notes.txt)
+
+    let preview = get-preview {name: null, path: ($root | path join project), source: 'directory'}
+
+    assert ($preview =~ 'Files') 'expected a Files heading'
+    assert ($preview =~ 'notes.txt') 'expected the file name'
+    assert (not ($preview =~ 'directory')) 'expected no source word'
+
+    remove-path $root
+}
+
+# Verify that a missing configuration file gives the defaults.
+def "test get-config-defaults-without-a-file" []: nothing -> nothing {
+    let root = mktemp --directory
+
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
+        let config = get-config
+
+        assert equal $config.projects.dir null
+        assert equal $config.icons.running '🟢'
+        assert equal $config.icons.stored '⚫'
+        assert equal $config.icons.directory '📁'
+        assert equal $config.restore.file null
+    }
+
+    remove-path $root
+}
+
+# Verify that the file sets the projects folder and overrides single icons.
+def "test get-config-reads-projects-and-icons" []: nothing -> nothing {
+    let root = mktemp --directory
+    let projects = $root | path join projects
+    let file = $root | path join .nsm.nuon
+
+    write-text $file ({
+        projects: {dir: $projects}
+        icons: {directory: 'D'}
+    } | to nuon)
+
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
+        let config = get-config
+
+        assert equal $config.projects.dir $projects
+        assert equal $config.icons.directory 'D'
+        assert equal $config.icons.running '🟢'
+    }
+
+    remove-path $root
+}
+
+# Verify that projects.dir is used when PROJECTS_DIR is empty, and that PROJECTS_DIR wins when set.
+def "test projects-dir-config-and-precedence" []: nothing -> nothing {
+    let root = mktemp --directory
+    let projects = $root | path join projects
+    let repository = $projects | path join repo
+    let other = $root | path join other
+    make-dir ($repository | path join .git)
+    make-dir ($other | path join .git)
+
+    write-text ($root | path join .nsm.nuon) ({
+        projects: {dir: $projects}
+    } | to nuon)
+
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: ''} {
+        assert equal (list-projects) [$repository] 'config directory'
+    }
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: $other} {
+        assert equal (list-projects) [$other] 'environment wins'
+    }
+
+    remove-path $root
+}
+
+# Verify that the configured icons show up in the picker labels.
+def "test custom-icons-in-labels" []: nothing -> nothing {
+    in-store {|root|
+        let config_dir = $root | path join .config
+        make-dir $config_dir
+        write-text ($config_dir | path join .nsm.nuon) ({icons: {stored: 'S'}} | to nuon)
+        save-session demo $root
+
+        with-env {XDG_CONFIG_HOME: $config_dir} {
+            let label = list-candidates --sessions | get label | first
+
+            assert ($label | str starts-with 'S') $'expected the custom icon in: ($label)'
+        }
+    }
+}
+
+# Verify that a malformed configuration file fails with its path.
+def "test get-config-rejects-a-malformed-file" []: nothing -> nothing {
+    let root = mktemp --directory
+
+    write-text ($root | path join .nsm.nuon) 'not a record'
+
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
+        let message = error-message { get-config }
+        let has_path = match $message {
+            null => false
+            $text => ($text =~ '.nsm.nuon')
+        }
+
+        assert $has_path $'expected the file path in: ($message)'
+    }
+
+    remove-path $root
+}
+
+# Verify that restore arguments appear only when the file is configured and exists.
+def "test get-restore-args" []: nothing -> nothing {
+    let root = mktemp --directory
+    let project = $root | path join project
+    let file = $project | path join Session.vim
+    make-dir $project
+    make-file $file
+
+    with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
+        assert equal (get-restore-args $project) [] 'no configuration'
+
+        write-text ($root | path join .nsm.nuon) ({restore: {file: 'Session.vim'}} | to nuon)
+        assert equal (get-restore-args $project) ['-S' $file] 'configured file'
+
+        write-text ($root | path join .nsm.nuon) ({restore: {file: 'Missing.vim'}} | to nuon)
+        assert equal (get-restore-args $project) [] 'missing file'
+    }
+
+    remove-path $root
 }

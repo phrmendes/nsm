@@ -50,6 +50,15 @@ export def make-file [path: path]: nothing -> nothing {
     }
 }
 
+# Write a text file, or fail with the reason.
+export def write-text [path: path, text: string]: nothing -> nothing {
+    try {
+        $text | save --force $path
+    } catch {|err|
+        fail $"Cannot write ($path): ($err.msg)"
+    }
+}
+
 # Run SQL against a database file with bound parameters.
 export def query-store [db: path, sql: string, --params: record = {}]: nothing -> table {
     try {

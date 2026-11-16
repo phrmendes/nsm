@@ -1,56 +1,107 @@
 # Neovim Server Manager
 
-Neovim Server Manager keeps detached Neovim servers for project workspaces. It stores each server's name, project path, and socket in SQLite.
+Keep one detached Neovim server per project, and switch between them from Neovim or the terminal. Sessions live in SQLite and each server listens on a socket.
 
-## Requirements
+For full documentation, see [`:help nsm`](doc/nsm.txt).
 
-- `nvim` and `git`.
-- Nushell with the skim plugin, which provides `sk` for the picker. Install `nu_plugin_skim`, then run `plugin add nu_plugin_skim` and `plugin use nu_plugin_skim`.
-- `zoxide` for directory discovery in the picker.
-- `kitty` is optional. It adds one tab per session.
+## Features
 
-The flake bundles Nushell with the skim plugin. The packaged `nsm` still needs `nvim` on `PATH`.
+- **Detached servers** — one headless Neovim per project keeps buffers and editor state alive.
+- **Picker** — fuzzy search over sessions, zoxide directories, and Git repositories under `PROJECTS_DIR`, with an icon per kind and a file preview.
+- **Kitty tabs** — one tab per session, with an overlay picker from Neovim.
+- **Scope** — limit the picker to one folder with `--scope` or `NSM_SCOPE`.
+- **Safe exits** — `:detach` keeps the server, `nsm kill` stops it, and unsaved buffers block the stop.
 
-## Commands
+## Installation
 
-- `nsm attach <name-or-directory>` creates or opens a session.
-- `nsm attach` opens the session picker.
-- `nsm switch` opens the picker without the current session.
-- `nsm attach [name]` opens an existing session. Add `--create` to create it when missing.
-- `nsm last` returns to the previously attached session.
-- `nsm new <name> [path]` creates a named session.
-- `nsm list` prints sessions as a table.
-- `nsm kill [name]` stops a session. Without a name, it opens the session picker. Add `--all` to stop every session. It refuses to stop sessions that have unsaved buffers, unless you pass `--force`.
+With [vim.pack](https://neovim.io/doc/user/usr_05.html#vim.pack) (Neovim 0.12+):
 
-The picker opens in the lower half of the terminal. To list only sessions under one directory, set `NSM_SCOPE=/path/to/folder` or pass `--scope /path/to/folder` to `attach`, `switch`, or `kill`.
+```lua
+vim.pack.add({ "https://github.com/phrmendes/nsm" })
+```
 
-Inside kitty, nsm opens one tab per session and focuses an existing tab. Run `:detach` in Neovim to detach the UI and keep the server running. Outside kitty, use `--here` to attach in the current terminal. `:detach` is the safe exit, because the server keeps its buffers. `nsm kill` stops the server and loses unsaved changes.
+Install the `nsm` CLI and put it on `PATH`. From this repository:
 
-## Neovim plugin
+```bash
+nix build .#nsm
+export PATH="$(nix build --print-out-paths .#nsm)/bin:$PATH"
+```
 
-The plugin registers `:Nsm`, the `<Plug>(nsm-switch)` mapping, and a default `<leader>w` mapping to it for the kitty overlay session picker. All of them load the module only when you use them. Add this project to Neovim's runtime path, or use the `neovim-plugin` package output from this flake.
+## Setup
 
-To choose your own keys:
+The plugin registers `:Nsm`, the `<Plug>(nsm-switch)` mapping, and a default `<leader>w` mapping to it. All of them load the module only when you use them.
+
+Choose your own keys with the `<Plug>` mapping:
 
 ```lua
 vim.keymap.set("n", "<leader>s", "<Plug>(nsm-switch)")
 ```
 
-Pass options to `setup()` to change the default map:
+Or change the default map with `setup()`:
 
 ```lua
 require("nsm").setup({ keymap = "<leader>s" })
 require("nsm").setup({ keymap = false }) -- no mapping
 ```
 
-The picker previews a running session by calling `buffers()` from this plugin. A running server without the plugin shows a message instead of its buffers.
+Inside kitty, `:Nsm` and the mapping open the picker in an overlay. Run `:checkhealth nsm` to check the `nsm` and `kitten` executables and `KITTY_LISTEN_ON`.
 
-Run `:checkhealth nsm` to check the `nsm` and `kitten` executables and `KITTY_LISTEN_ON`. The help file is `doc/nsm.txt`, generated from the Lua annotations with `devenv tasks run doc:run` after you change them.
+## Usage
 
-## Nix
+| Command                                   | Description                                                  |
+| ----------------------------------------- | ------------------------------------------------------------ |
+| `nsm attach [name-or-directory]`          | Create or open a session, or pick one                        |
+| `nsm switch`                              | Pick another session, without the current one                |
+| `nsm last`                                | Return to the previous session                               |
+| `nsm new <name> [path]`                   | Create a named session                                       |
+| `nsm list`                                | Print sessions as a table                                    |
+| `nsm kill [name]`                         | Stop a session, or every session with `--all`                |
+| `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k` | Short forms of the commands above               |
 
-Build the CLI with `nix build .#nsm`. Build the plugin with `nix build .#neovim-plugin`. The default package is nsm.
+The picker opens in the lower half of the terminal. To list only sessions under one directory, pass `--scope /path/to/folder` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE=/path/to/folder`.
+
+`nsm kill` refuses to stop a session that has unsaved buffers. Pass `--force`, or use `--all --force` to stop everything.
+
+Inside kitty, nsm opens one tab per session and focuses an existing tab. Run `:detach` in Neovim to detach the UI and keep the server running. Outside kitty, use `--here` to attach in the current terminal. `:detach` is the safe exit, because the server keeps its buffers. `nsm kill` stops the server and loses unsaved changes.
+
+## Configuration
+
+Create `~/.config/.nsm.nuon` to set the default projects folder and the picker icons:
+
+```nuon
+{
+  projects: { dir: "~/Projects" }
+  icons: { running: "🟢", stored: "⚫", directory: "📁" }
+  restore: { file: "Session.vim" }
+}
+```
+
+`PROJECTS_DIR` still wins over `projects.dir`. Environment variables take precedence over the file. Omit a key to keep its default. A malformed file fails with its path.
+
+`restore.file` is optional. When it is set and the file exists in the project, nsm starts the server with `nvim ... -S <file>`. nsm does not create the file. Use `:mksession` in the project to write one. The file runs project Vimscript, so only enable it for projects you trust.
+
+## Requirements
+
+- Neovim 0.12+
+- `nsm` on `PATH`, plus `nvim` and `git`
+- Nushell with the skim plugin, which provides `sk`. Install `nu_plugin_skim`, then run `plugin add nu_plugin_skim` and `plugin use nu_plugin_skim`
+- `zoxide` for directory discovery
+
+### Optional
+
+- `kitty` for tabs and the overlay picker
+
+The flake bundles Nushell with the skim plugin. The packaged `nsm` still needs `nvim` on `PATH`.
 
 ## Development
 
-Enter the environment with `direnv allow` or `devenv shell`. It provides `stylua` and `lua-language-server` for Lua, and `nu-lint`, `nufmt`, and Nushell for the CLI. Run `devenv test` to run the Nushell and Lua test suites. Run `devenv tasks run lint:all` and `devenv tasks run format:check` before changes.
+This project uses [devenv](https://devenv.sh).
+
+```bash
+devenv test                    # run the Nushell and plugin test suites
+devenv tasks run doc:run       # regenerate doc/nsm.txt
+devenv tasks run lint:all      # lint the Nushell code
+devenv tasks run format:check
+```
+
+The `nsm` CLI lives in `cli/` and the plugin in `lua/nsm/`. Build the plugin with `nix build .#neovim-plugin`.

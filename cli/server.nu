@@ -1,3 +1,4 @@
+use config.nu [get-config]
 use lib.nu [fail remove-path]
 use store.nu [get-display-path get-socket resolve-target save-session touch-session]
 
@@ -13,8 +14,10 @@ def start-server [name: string, path: path]: nothing -> nothing {
         fail $'Cannot enter ($path): ($err.msg)' $path --text path
     }
 
+    let restore = get-restore-args $path
+
     with-env {NSM_SESSION: $name} {
-        setsid --fork nvim --headless --listen $socket o+e> /dev/null
+        setsid --fork nvim --headless --listen $socket ...$restore o+e> /dev/null
     }
 
     if not (wait-until { is-alive $socket }) {
@@ -36,7 +39,7 @@ def open-session [name: string, path: path, --here]: nothing -> nothing {
             ')'
         ] | str join
 
-        nvim --server $socket --remote-expr $expression | ignore
+        nvim --clean --server $socket --remote-expr $expression | ignore
     }
 
     if $here or ($kitty | is-empty) {
@@ -75,7 +78,7 @@ export def is-alive [socket: path]: nothing -> bool {
         return false
     }
 
-    (nvim --server $socket --remote-expr 1 | complete).exit_code == 0
+    (nvim --clean --server $socket --remote-expr 1 | complete).exit_code == 0
 }
 
 # Wait until a check passes, for at most five seconds.
@@ -94,7 +97,7 @@ export def wait-until [check: closure]: nothing -> bool {
 # Return whether a running server has listed buffers with unsaved changes.
 export def has-unsaved-changes [name: string]: nothing -> bool {
     let expression = 'len(filter(getbufinfo({"buflisted": 1}), {_, b -> b.changed}))'
-    let result = nvim --server (get-socket $name) --remote-expr $expression | complete
+    let result = nvim --clean --server (get-socket $name) --remote-expr $expression | complete
 
     if $result.exit_code != 0 {
         return false
@@ -118,4 +121,25 @@ export def connect-session [target: oneof<string, nothing>, --here]: nothing -> 
     }
 
     open-session $session.name $session.path --here=$here
+}
+
+# Return the arguments that restore a session file, when one is configured and exists.
+export def get-restore-args [path: path]: nothing -> list<string> {
+    let file = (get-config).restore.file
+
+    if ($file | is-empty) {
+        return []
+    }
+
+    let target = if ($file | str starts-with '/') {
+        $file
+    } else {
+        $path | path join $file
+    }
+
+    if not ($target | path exists) {
+        return []
+    }
+
+    ['-S' $target]
 }
