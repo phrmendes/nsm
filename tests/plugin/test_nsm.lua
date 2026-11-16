@@ -102,4 +102,31 @@ T["switch"]["warns and does nothing outside kitty"] = function()
   eq(result.level, vim.log.levels.WARN)
 end
 
+T["setup"] = test.new_set()
+
+T["setup"]["custom key replaces the default mapping"] = function()
+  child.lua([[ require("nsm").setup({ keymap = "<leader>s" }) ]])
+
+  eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
+  eq(child.lua_get("vim.fn.maparg('<leader>s', 'n', false, true).rhs"), "<Plug>(nsm-switch)")
+end
+
+T["setup"]["keeps a mapping that the user owns"] = function()
+  local kept = child.lua([[
+    vim.keymap.set("n", "<leader>w", function() end)
+    require("nsm").setup({ keymap = "<leader>s" })
+
+    return vim.fn.maparg("<leader>w", "n", false, true).callback ~= nil
+  ]])
+
+  eq(kept, true)
+end
+
+T["setup"]["removes the plugin mapping with keymap false"] = function()
+  child.lua([[ require("nsm").setup({ keymap = false }) ]])
+
+  eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
+  eq(child.lua_get("vim.fn.maparg('<Plug>(nsm-switch)', 'n') ~= ''"), true)
+end
+
 return T
