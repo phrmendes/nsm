@@ -5,7 +5,7 @@ local child = test.new_child_neovim()
 
 local T = test.new_set({
   hooks = {
-    pre_case = function() child.restart({ "-u", "scripts/init.lua" }) end,
+    pre_case = function() child.restart({ "-u", "scripts/init.lua" }, { connection_timeout = 2000 }) end,
     post_once = child.stop,
   },
 })
@@ -17,15 +17,17 @@ T["switch"]["starts the chosen session and attaches the current UI"] = function(
     local captured = {}
     local rows = '[{"label":"🟢 work  ~/work","name":"work","path":"/home/ana/work","source":"running"}]'
 
-    vim.system = function(command)
+    vim.system = function(command, _, on_exit)
       table.insert(captured, { command = command })
 
-      return {
+      local result = {
         code = 0,
         stdout = command[2] == "pick" and rows or "/state/nsm/work.sock\n",
         stderr = "",
         wait = function(self) return self end,
       }
+      if on_exit then on_exit(result) end
+      return result
     end
 
     vim.ui.select = function(items, opts, on_choice)
@@ -36,6 +38,7 @@ T["switch"]["starts the chosen session and attaches the current UI"] = function(
     local nsm = require("nsm")
     nsm.connect = function(address) table.insert(captured, { connect = address }) end
     nsm.switch()
+    vim.wait(1000, function() return captured[#captured] and captured[#captured].connect ~= nil end, 10)
 
     return captured
   ]])
@@ -53,22 +56,25 @@ T["switch"]["starts a directory that has no session yet"] = function()
     local captured = {}
     local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"}]'
 
-    vim.system = function(command)
+    vim.system = function(command, _, on_exit)
       table.insert(captured, command)
 
-      return {
+      local result = {
         code = 0,
         stdout = command[2] == "pick" and rows or "/state/nsm/project.sock\n",
         stderr = "",
         wait = function(self) return self end,
       }
+      if on_exit then on_exit(result) end
+      return result
     end
 
     vim.ui.select = function(items, _, on_choice) on_choice(items[1], 1) end
 
     local nsm = require("nsm")
-    nsm.connect = function() end
+    nsm.connect = function(address) table.insert(captured, { connect = address }) end
     nsm.switch()
+    vim.wait(1000, function() return captured[#captured] and captured[#captured].connect ~= nil end, 10)
 
     return captured
   ]])
@@ -76,6 +82,7 @@ T["switch"]["starts a directory that has no session yet"] = function()
   eq(calls, {
     { "nsm", "pick" },
     { "nsm", "start", "/home/ana/project" },
+    { connect = "/state/nsm/project.sock" },
   })
 end
 
@@ -106,9 +113,11 @@ T["switch"]["passes zoxide rows to vim.ui.select"] = function()
     local captured = { commands = {} }
     local rows = '[{"label":"📁 ~/project","name":null,"path":"/home/ana/project","source":"directory"},{"label":"[Z] 📁 ~/recent","name":null,"path":"/home/ana/recent","source":"zoxide"}]'
 
-    vim.system = function(command)
+    vim.system = function(command, _, on_exit)
       table.insert(captured.commands, command)
-      return { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/project.sock", stderr = "", wait = function(self) return self end }
+      local result = { code = 0, stdout = command[2] == "pick" and rows or "/state/nsm/project.sock", stderr = "", wait = function(self) return self end }
+      if on_exit then on_exit(result) end
+      return result
     end
 
     vim.ui.select = function(items, opts, on_choice, start_opts)
@@ -120,8 +129,9 @@ T["switch"]["passes zoxide rows to vim.ui.select"] = function()
     end
 
     local nsm = require("nsm")
-    nsm.connect = function() end
+    nsm.connect = function(address) captured.connected = address end
     nsm.switch()
+    vim.wait(1000, function() return captured.connected ~= nil end, 10)
 
     return captured
   ]])
@@ -214,6 +224,34 @@ T["connect"]["notifies when the UI cannot attach"] = function()
   ]])
 
   assert(message ~= nil and message ~= "")
+end
+
+T["switch"]["returns before a slow start completes"] = function()
+  local result = child.lua([[
+    local captured = { connected = nil, pending = nil }
+    local rows = '[{"label":"🟢 work","name":"work","path":"/w","source":"running"}]'
+
+    vim.system = function(command, _, on_exit)
+      local result = { code = 0, stdout = command[2] == "pick" and rows or "", stderr = "", wait = function(self) return self end }
+      if on_exit then captured.pending = on_exit else return result end
+      return result
+    end
+
+    vim.ui.select = function(items, _, on_choice) on_choice(items[1], 1) end
+
+    local nsm = require("nsm")
+    nsm.connect = function(address) captured.connected = address end
+    nsm.switch()
+
+    captured.before = captured.connected
+    captured.pending({ code = 0, stdout = "/state/nsm/work.sock", stderr = "" })
+    vim.wait(1000, function() return captured.connected ~= nil end, 10)
+
+    return { before = captured.before, connected = captured.connected }
+  ]])
+
+  eq(result.before, nil)
+  eq(result.connected, "/state/nsm/work.sock")
 end
 
 T["switch"]["notifies when the pick command fails"] = function()
