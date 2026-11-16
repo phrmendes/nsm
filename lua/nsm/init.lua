@@ -39,10 +39,30 @@
 --- `PROJECTS_DIR` is not read. `restore.file` is optional and runs project
 --- Vimscript, so enable it only for trusted projects.
 ---
+--- SSH hosts ~
+--- *nsm-ssh*
+---
+--- `:Nsm` also lists the `Host` aliases in `~/.ssh/config`, if Neovim supports
+--- `:connect ssh://`. Choosing one connects to that host. Neovim uses the
+--- `nvim` in the `PATH` of the host when that version is new enough, otherwise
+--- it installs its own. It copies your local config to `~/.config/nvim-remote/`
+--- and runs it with `NVIM_APPNAME=nvim-remote`. The remote host needs no `nsm`.
+---
+--- Picker rows ~
+--- *nsm-rows*
+---
+--- `nsm pick` prints one JSON object per row. The fields are:
+---
+--- - `label`: the text that the picker shows.
+--- - `name`: the session name, or null for a directory or a host.
+--- - `path`: the directory, or null for a host.
+--- - `source`: `running`, `stored`, `directory`, `zoxide`, or `host`.
+--- - `address`: the `ssh://` address of a host row.
+---
 --- Requirements ~
 --- *nsm-requirements*
 ---
---- - Neovim 0.12+
+--- - Neovim 0.12+ with `:connect ssh://` for SSH hosts
 --- - `nsm` on `PATH`, plus `nvim` and `git`
 --- - `fzf` on `PATH`
 --- - `zoxide` on `PATH` for recent directories
@@ -66,6 +86,12 @@ local scope
 ---@private
 local function strip_ansi(text) return ((text or ""):gsub("\27%[[%d;]*m", "")) end
 
+--- Notify an error, without the ANSI colour codes of the CLI.
+---
+---@param err any
+---@private
+local function notify_error(err) vim.notify(strip_ansi(tostring(err)), vim.log.levels.ERROR) end
+
 --- Notify the failure of a command.
 ---
 ---@param command string[]
@@ -74,7 +100,7 @@ local function strip_ansi(text) return ((text or ""):gsub("\27%[[%d;]*m", "")) e
 local function fail(command, result)
   local stderr = (result.stderr or ""):gsub("%s+$", "")
   local fallback = "`" .. table.concat(command, " ") .. "` failed"
-  vim.notify(strip_ansi(stderr ~= "" and stderr or fallback), vim.log.levels.ERROR)
+  notify_error(stderr ~= "" and stderr or fallback)
 end
 
 --- Run a command and return its trimmed stdout, or notify its failure.
@@ -86,7 +112,7 @@ local function run(command)
   local ok, result = pcall(function() return vim.system(command, { text = true }):wait() end)
 
   if not ok then
-    vim.notify(strip_ansi(tostring(result)), vim.log.levels.ERROR)
+    notify_error(result)
     return nil
   end
 
@@ -116,7 +142,7 @@ local function run_async(command, on_success)
   end)
 
   local ok, process = pcall(vim.system, command, { text = true }, on_exit)
-  if not ok then vim.notify(strip_ansi(tostring(process)), vim.log.levels.ERROR) end
+  if not ok then notify_error(process) end
 end
 
 --- Return the name of the row, or its path when it has no session.
@@ -129,12 +155,19 @@ local function get_target(item)
   return item.path
 end
 
+--- Return whether Neovim supports `:connect ssh://`.
+---
+---@return boolean
+---@private
+local function has_remote_ssh() return #vim.fn.getcompletion("remote-ssh", "help") > 0 end
+
 --- Ask for a session or directory with `vim.ui.select`.
 ---
 ---@param on_choice fun(item: table)
 ---@private
 local function pick(on_choice)
   local command = { "nsm", "pick" }
+  if has_remote_ssh() then table.insert(command, "--hosts") end
   if scope and scope ~= "" then vim.list_extend(command, { "--scope", scope }) end
 
   local output = run(command)
@@ -164,7 +197,7 @@ end
 ---@param address string
 function nsm.connect(address)
   local ok, err = pcall(function() vim.cmd({ cmd = "connect", args = { address } }) end)
-  if not ok then vim.notify(strip_ansi(tostring(err)), vim.log.levels.ERROR) end
+  if not ok then notify_error(err) end
 end
 
 --- Open the picker and switch the current UI to the chosen session.
@@ -174,6 +207,11 @@ end
 ---
 function nsm.switch()
   pick(function(item)
+    if item.source == "host" and item.address then
+      nsm.connect(item.address)
+      return
+    end
+
     run_async({ "nsm", "start", get_target(item) }, function(socket)
       if socket and socket ~= "" then nsm.connect(socket) end
     end)

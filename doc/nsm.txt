@@ -42,10 +42,30 @@ Create `~/.config/.nsm.nuon`:
 `PROJECTS_DIR` is not read. `restore.file` is optional and runs project
 Vimscript, so enable it only for trusted projects.
 
+SSH hosts ~
+*nsm-ssh*
+
+`:Nsm` also lists the `Host` aliases in `~/.ssh/config`, if Neovim supports
+`:connect ssh://`. Choosing one connects to that host. Neovim uses the
+`nvim` in the `PATH` of the host when that version is new enough, otherwise
+it installs its own. It copies your local config to `~/.config/nvim-remote/`
+and runs it with `NVIM_APPNAME=nvim-remote`. The remote host needs no `nsm`.
+
+Picker rows ~
+*nsm-rows*
+
+`nsm pick` prints one JSON object per row. The fields are:
+
+- `label`: the text that the picker shows.
+- `name`: the session name, or null for a directory or a host.
+- `path`: the directory, or null for a host.
+- `source`: `running`, `stored`, `directory`, `zoxide`, or `host`.
+- `address`: the `ssh://` address of a host row.
+
 Requirements ~
 *nsm-requirements*
 
-- Neovim 0.12+
+- Neovim 0.12+ with `:connect ssh://` for SSH hosts
 - `nsm` on `PATH`, plus `nvim` and `git`
 - `fzf` on `PATH`
 - `zoxide` on `PATH` for recent directories
