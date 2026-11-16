@@ -8,21 +8,54 @@ Open the session picker for the detached Neovim servers that nsm keeps.
 `:Nsm` and the `<Plug>(nsm-switch)` mapping switch the current UI to the
 chosen session with `:connect`.
 
+Usage ~
+*nsm-usage*
+
+- `nsm attach [name-or-directory]`: create or open a session, or pick one.
+- `nsm switch`: pick another session.
+- `nsm last`: return to the previous session.
+- `nsm new <name> [path]`: create a named session.
+- `nsm start <name-or-directory>`: start a session and print its socket.
+- `nsm list`: print sessions as a table.
+- `nsm pick`: print the picker rows as JSON.
+- `nsm kill [name]`: stop a session, or every session with `--all`.
+- `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k`: short forms.
+
+Pass `--scope <path>` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE`,
+to limit the picker to one directory. `nsm kill` refuses unsaved buffers;
+pass `--force` to override it. `:detach` keeps the server running.
+
+Configuration ~
+*nsm-configuration*
+
+Create `~/.config/.nsm.nuon`:
+
+>
+  {
+    projects: ["~/Projects", "/mnt/external/projects"]
+    icons: { running: "🟢", stored: "⚫", directory: "📁" }
+    restore: { file: "Session.vim" }
+  }
+<
+
+`projects` lists all project roots. Omit it to disable repository discovery.
+`PROJECTS_DIR` is not read. `restore.file` is optional and runs project
+Vimscript, so enable it only for trusted projects.
+
+Requirements ~
+*nsm-requirements*
+
+- Neovim 0.12+
+- `nsm` on `PATH`, plus `nvim` and `git`
+- `fzf` on `PATH`
+- `zoxide` on `PATH` for recent directories
+
 ------------------------------------------------------------------------------
 Class ~
 {nsm.Config}
 Fields ~
 {keymap} `(string|false|nil)` Keymap for the session picker. Defaults to "<leader>w". Use false for no mapping.
-
-------------------------------------------------------------------------------
-                                                                 *nsm.buffers()*
-                                `nsm.buffers`()
-Return the listed buffer names, shortened against the home and the current directory.
-
-The result is joined with a newline and used by the picker preview.
-
-Return ~
-`(string)`
+{scope} `(string|nil)` Only list rows under this directory.
 
 ------------------------------------------------------------------------------
                                                                  *nsm.connect()*

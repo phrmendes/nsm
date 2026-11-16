@@ -10,32 +10,6 @@ local T = test.new_set({
   },
 })
 
-T["buffers"] = test.new_set()
-
-T["buffers"]["returns listed names, shortened, without unnamed buffers"] = function()
-  local result = child.lua([[
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, "p")
-    vim.fn.writefile({ "a" }, dir .. "/a.txt")
-    vim.fn.writefile({ "b" }, dir .. "/b.txt")
-
-    vim.cmd.cd(dir)
-    vim.cmd.edit(dir .. "/a.txt")
-    vim.cmd.edit(dir .. "/b.txt")
-
-    local unlisted = vim.fn.bufadd(dir .. "/c.txt")
-    vim.fn.bufload(unlisted)
-    vim.cmd.enew()
-
-    local names = require("nsm").buffers()
-    vim.fn.delete(dir, "rf")
-
-    return names
-  ]])
-
-  eq(result, "a.txt\nb.txt")
-end
-
 T["switch"] = test.new_set()
 
 T["switch"]["starts the chosen session and attaches the current UI"] = function()
@@ -156,6 +130,90 @@ T["switch"]["passes zoxide rows to vim.ui.select"] = function()
   eq(result.zoxide_label, "[Z] 📁 ~/recent")
   eq(result.prompt, "nsm> ")
   eq(result.extra_opts, nil)
+end
+
+T["switch"]["passes the configured scope to pick"] = function()
+  local calls = child.lua([[
+    local captured = {}
+
+    vim.system = function(command)
+      table.insert(captured, command)
+      return { code = 0, stdout = "[]", stderr = "", wait = function(self) return self end }
+    end
+
+    vim.notify = function() end
+    require("nsm").setup({ scope = "/tmp/projects" })
+    require("nsm").switch()
+
+    return captured
+  ]])
+
+  eq(calls, { { "nsm", "pick", "--scope", "/tmp/projects" } })
+end
+
+T["switch"]["notifies on invalid picker JSON"] = function()
+  local message = child.lua([[
+    local notified
+
+    vim.system = function()
+      return { code = 0, stdout = "not json", stderr = "", wait = function(self) return self end }
+    end
+
+    vim.notify = function(text) notified = text end
+    require("nsm").switch()
+
+    return notified
+  ]])
+
+  eq(message, "nsm returned invalid picker data")
+end
+
+T["switch"]["warns on an empty candidate list"] = function()
+  local result = child.lua([[
+    local notified, selected = nil, false
+
+    vim.system = function()
+      return { code = 0, stdout = "[]", stderr = "", wait = function(self) return self end }
+    end
+
+    vim.notify = function(text) notified = text end
+    vim.ui.select = function() selected = true end
+    require("nsm").switch()
+
+    return { message = notified, selected = selected }
+  ]])
+
+  eq(result.selected, false)
+  eq(result.message, "There is nothing to pick. Start a session with `nsm new <name>`.")
+end
+
+T["switch"]["notifies when nsm cannot be started"] = function()
+  local message = child.lua([[
+    local notified
+
+    vim.system = function() error("spawn nsm ENOENT") end
+    vim.notify = function(text) notified = text end
+    require("nsm").switch()
+
+    return notified
+  ]])
+
+  assert(message:find("spawn nsm ENOENT") ~= nil)
+end
+
+T["connect"] = test.new_set()
+
+T["connect"]["notifies when the UI cannot attach"] = function()
+  local message = child.lua([[
+    local notified
+
+    vim.notify = function(text) notified = text end
+    require("nsm").connect("/nonexistent/nsm.sock")
+
+    return notified
+  ]])
+
+  assert(message ~= nil and message ~= "")
 end
 
 T["switch"]["notifies when the pick command fails"] = function()
