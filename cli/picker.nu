@@ -1,7 +1,6 @@
 use config.nu [get-config]
-use lib.nu [fail get-display-path warn]
+use lib.nu [fail get-project-path warn]
 use server.nu [is-alive]
-use ssh.nu [list-ssh-hosts]
 use store.nu [list-recent-sessions]
 
 const ZOXIDE_LIMIT = 5
@@ -13,17 +12,17 @@ def get-icon [source: string, icons: record]: nothing -> string {
     $icons | get --optional $source | default $icons.directory
 }
 
-# Return the label of a row: the icon, the session name when it has one, and the path.
-def get-label [row: record, icons: record]: nothing -> string {
-    let icon = get-icon $row.source $icons
-    let path = get-display-path $row.path
-    let prefix = if $row.source == 'zoxide' { '[Z] ' } else { '' }
+# Return the label of a row: the icon, the session name when it has one, the path, and the zoxide tag.
+def get-label [row: record, options: record]: nothing -> string {
+    let icon = get-icon $row.source $options.icons
+    let path = get-project-path $row.path $options.roots
+    let suffix = if $row.source == 'zoxide' { ' [Z]' } else { '' }
 
     if ($row.name | is-empty) {
-        return $"($prefix)($icon) ($path)"
+        return $"($icon) ($path)($suffix)"
     }
 
-    $"($prefix)($icon) ($row.name)  ($path)"
+    $"($icon) ($row.name)  ($path)($suffix)"
 }
 
 # Return the resolved scope: the argument, then `NSM_SCOPE`, then nothing.
@@ -41,14 +40,14 @@ def get-scope [scope: string]: nothing -> string {
     }
 }
 
-# Return the directories that zoxide knows.
+# Return the directories that zoxide knows, most used first.
 def list-zoxide []: nothing -> list<string> {
     if (which zoxide | is-empty) {
-        warn 'zoxide is not installed; recent directories are hidden.'
+        warn 'zoxide is not installed. Recent directories are hidden.'
         return []
     }
 
-    zoxide query --list | lines | first $ZOXIDE_LIMIT
+    zoxide query --list | lines
 }
 
 # Return whether a path is inside the scope. An empty scope keeps every path.
@@ -58,6 +57,7 @@ def in-scope [path: string, scope: string]: nothing -> bool {
     }
 
     let target = $path | path expand
+    let scope = $scope | path expand
 
     $target == $scope or ($target | str starts-with $"($scope)/")
 }
@@ -142,60 +142,52 @@ export def list-projects []: nothing -> list<string> {
     | uniq
 }
 
-# Return the rows for the SSH hosts in the user's configuration.
-export def list-host-candidates []: nothing -> table {
-    let icons = (get-config).icons
-
-    list-ssh-hosts
-    | each {|host| {
-        label: $"($icons.host) ($host)"
-        name: null
-        path: null
-        source: 'host'
-        address: $"ssh://($host)"
-    }}
-}
-
 # Return the picker rows of the sessions, without the excluded name.
-export def list-session-rows [exclude: string, icons: record]: nothing -> table {
+def list-session-rows [exclude: string, options: record]: nothing -> table {
     list-recent-sessions
     | where name != $exclude
     | par-each {|session| $session | insert alive (is-alive $session.socket) }
     | insert source {|session| if $session.alive { 'running' } else { 'stored' } }
-    | insert label {|session| get-label $session $icons }
+    | insert label {|session| get-label $session $options }
     | select label name path source
 }
 
 # Return the picker rows of the directories that are not sessions.
-def make-directory-rows [paths: list<string>, options: record]: nothing -> table {
+def make-directory-rows [paths: list<string>, source: string, options: record]: nothing -> table {
     $paths
     | uniq
     | wrap path
     | insert name null
-    | insert source $options.source
-    | insert label {|row| get-label $row $options.icons }
+    | insert source $source
+    | insert label {|row| get-label $row $options }
     | select label name path source
 }
 
 # Return the rows of the picker: sessions, configured projects, and zoxide directories.
 export def list-candidates [--exclude: string = '', --sessions, --scope: string = '']: nothing -> table {
-    let icons = (get-config).icons
+    let config = (get-config)
+    let options = {icons: $config.icons, roots: $config.projects}
     let scope = get-scope $scope
 
-    let known = list-session-rows $exclude $icons
+    let known = list-session-rows $exclude $options
 
     if $sessions {
         return ($known | where {|row| in-scope $row.path $scope })
     }
 
+    let roots = $config.projects | each {|root| $root | path expand }
+
     let projects = list-projects
     | where { ($in | path exists) and $in not-in $known.path }
 
     let zoxide = list-zoxide
-    | where { ($in | path exists) and $in not-in $known.path and $in not-in $projects }
+    | where {|path|
+        ($path | path exists) and $path not-in $known.path and (not ($roots | any {|root| in-scope $path $root }))
+    }
+    | first $ZOXIDE_LIMIT
 
     $known
-    | append (make-directory-rows $projects {source: 'directory', icons: $icons})
-    | append (make-directory-rows $zoxide {source: 'zoxide', icons: $icons})
+    | append (make-directory-rows $projects 'directory' $options)
+    | append (make-directory-rows $zoxide 'zoxide' $options)
     | where {|row| in-scope $row.path $scope }
 }

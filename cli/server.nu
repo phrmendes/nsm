@@ -5,6 +5,7 @@ use target.nu [resolve-target]
 
 const POLL_ATTEMPTS = 50
 const POLL_INTERVAL = 100ms
+const REMOTE_TIMEOUT = 2
 
 # Start a detached server for a session, in the directory of the project.
 def start-server [session: record]: nothing -> nothing {
@@ -28,8 +29,9 @@ def start-server [session: record]: nothing -> nothing {
 }
 
 # Run a remote expression on a server and return the completed command.
+# A server that does not answer within a few seconds counts as unreachable.
 def remote-expr [socket: path, expression: string]: nothing -> record {
-    nvim --clean --server $socket --remote-expr $expression | complete
+    timeout $REMOTE_TIMEOUT nvim --clean --server $socket --remote-expr $expression | complete
 }
 
 # Open a session in the current terminal. The UI closes on `:detach`.

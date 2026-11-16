@@ -1,5 +1,5 @@
-use lib.nu [fail report-error warn]
-use picker.nu [get-preview list-candidates list-host-candidates pick-candidate]
+use lib.nu [EXIT_UNSAVED fail report-error warn]
+use picker.nu [get-preview list-candidates pick-candidate]
 use render.nu [format-sessions]
 use server.nu [
     connect-session
@@ -43,7 +43,7 @@ def kill-all [force: bool]: nothing -> nothing {
         let dirty = get-dirty-sessions $sessions
 
         if ($dirty | is-not-empty) {
-            fail $'These sessions have unsaved changes: ($dirty | str join ", "). Save them, or run `nsm kill --all --force`.'
+            fail $'These sessions have unsaved changes: ($dirty | str join ", "). Save them, or run `nsm kill --all --force`.' --code $EXIT_UNSAVED
         }
     }
 
@@ -57,7 +57,7 @@ def kill-one [target: string, force: bool]: nothing -> nothing {
     let session = get-session $target
 
     if not $force and (is-alive $session.socket) and (has-unsaved-changes $target) {
-        fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.'
+        fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.' --code $EXIT_UNSAVED
     }
 
     stop-session $target
@@ -166,17 +166,11 @@ def "main preview" [
 # Print the rows of the picker as JSON for the Neovim plugin.
 def "main pick" [
     --sessions # Only list sessions, not directories
-    --hosts # Include SSH hosts from the user's configuration
     --scope: string = '' # Only list rows under this directory
 ]: nothing -> nothing {
     run-command {
         let exclude = $env.NSM_SESSION? | default {|| ''}
         let rows = list-candidates --exclude $exclude --sessions=$sessions --scope $scope
-        let rows = if $hosts {
-            $rows | append (list-host-candidates)
-        } else {
-            $rows
-        }
 
         $rows | to json
     }

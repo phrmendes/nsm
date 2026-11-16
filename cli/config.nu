@@ -4,7 +4,6 @@ const DEFAULT_ICONS = {
     running: '🟢'
     stored: '⚫'
     directory: '📁'
-    host: '🌐'
 }
 
 # Return the path of the configuration file.

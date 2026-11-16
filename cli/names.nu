@@ -9,11 +9,16 @@ export def check-name [name: string]: nothing -> nothing {
 
 # Return the name that a directory gets as a session: the basename of its git root, or of the directory itself.
 export def get-session-name [directory: path]: nothing -> string {
-    let root = git -C $directory rev-parse --show-toplevel | complete
-    let base = if $root.exit_code == 0 {
-        $root.stdout | str trim
+    let root = if (which git | is-empty) {
+        null
     } else {
+        git -C $directory rev-parse --show-toplevel | complete
+    }
+
+    let base = if $root == null or $root.exit_code != 0 {
         $directory
+    } else {
+        $root.stdout | str trim
     }
 
     $base | path basename | str replace --all --regex '[^a-zA-Z0-9._-]' '-'
