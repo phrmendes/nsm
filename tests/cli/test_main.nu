@@ -7,7 +7,6 @@ use ./fixtures.nu [
     query-store
     read-file
     run-tests
-    set-socket
     with-shim-env
 ]
 use ../../cli/picker.nu [get-preview]

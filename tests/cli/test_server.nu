@@ -6,7 +6,6 @@ use ./fixtures.nu [
     in-store
     make-dir
     make-file
-    make-setsid-shim
     make-shims
     query-store
     read-file
@@ -68,7 +67,7 @@ def "test kill-guards-unsaved-changes" []: nothing -> nothing {
             assert (wait-until { has-unsaved-changes dirty }) 'the buffer is modified'
 
             let refused = nu --no-config-file cli/main.nu kill dirty | complete
-            assert ($refused.exit_code != 0) 'kill refuses a dirty session without --force'
+            assert equal $refused.exit_code 3 'kill refuses a dirty session with the unsaved code'
             assert (($refused.stderr =~ 'has unsaved changes')) $refused.stderr
             assert (is-alive $socket) 'a refused kill keeps the server'
             assert equal (get-session dirty | get name) dirty 'a refused kill keeps the session'
@@ -219,7 +218,7 @@ def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> n
             assert (wait-until { has-unsaved-changes dirty }) 'the buffer is modified'
 
             let refused = nu --no-config-file cli/main.nu kill --all | complete
-            assert ($refused.exit_code != 0) 'kill --all refuses a dirty session'
+            assert equal $refused.exit_code 3 'kill --all refuses a dirty session with the unsaved code'
             assert ((($refused.stderr | ansi strip) =~ 'These sessions have unsaved changes: dirty.')) $refused.stderr
             assert (is-alive $clean_socket) 'a refused kill --all keeps every server'
 
@@ -230,6 +229,10 @@ def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> n
             assert (not (is-alive $dirty_socket)) 'the dirty server stops'
             assert equal (list-sessions) [] 'every session is gone'
         }
+
+        let missing = nu --no-config-file cli/main.nu kill ghost | complete
+        assert equal $missing.exit_code 1 'another failure keeps the generic code'
+        assert ((($missing.stderr | ansi strip) =~ 'No session is named ghost.')) $missing.stderr
 
         let empty = nu --no-config-file cli/main.nu kill --all | complete
         assert equal $empty.exit_code 0 $empty.stderr

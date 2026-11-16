@@ -2,6 +2,7 @@ use std/assert
 use ./fixtures.nu [
     from-json
     get-bash
+    make-dir
     in-root
     make-dir
     make-file
@@ -187,5 +188,66 @@ def "test get-preview-shows-a-directory-listing" []: nothing -> nothing {
 
         let hint = get-preview {name: null, path: $missing, source: 'directory'}
         assert equal ($hint | lines) [$missing '' 'The directory does not exist.']
+    }
+}
+
+# Verify that labels lose the configured project root and keep the display path elsewhere.
+def "test labels-show-paths-relative-to-the-project-roots" []: nothing -> nothing {
+    in-root {|root|
+        let projects = $root | path join projects
+        let inside = $projects | path join neovim nsm
+        let outside = $root | path join elsewhere thesis
+        make-dir $inside
+        make-dir $outside
+        write-text ($root | path join .nsm.nuon) ({projects: [$projects]} | to nuon)
+
+        with-shim-env $root ($root | path join bin) {
+            create-store
+            save-session nsm $inside
+            save-session thesis $outside
+
+            let rows = with-env {XDG_CONFIG_HOME: $root} { list-candidates --sessions }
+            let labels = $rows | get label | sort
+
+            assert equal ($labels | get -o 0) '⚫ nsm  neovim/nsm' 'a session under the root shows the relative path'
+            assert equal ($labels | get -o 1) '⚫ thesis  ~/elsewhere/thesis' 'a session outside the root keeps the display path'
+        }
+    }
+}
+
+# Verify that zoxide rows drop sessions and project roots, then keep the top five.
+def "test zoxide-rows-skip-sessions-and-project-roots" []: nothing -> nothing {
+    in-root {|root|
+        let bin = $root | path join bin
+        let projects = $root | path join projects
+        let inside = $projects | path join repo
+        let outside = 1..8 | each {|index| $root | path join $'dir-($index)' }
+        let recent = [$inside] | append $outside
+        make-dir $bin
+        make-dir ($inside | path join .git)
+        for directory in $outside { make-dir $directory }
+        write-text ($root | path join .nsm.nuon) ({projects: [$projects]} | to nuon)
+        let bash = get-bash
+        write-text ($bin | path join zoxide) ([
+            $"#!($bash)"
+            'printf "%s\n" "$ZOXIDE_DIRS"'
+        ] | str join (char nl))
+        chmod +x ($bin | path join zoxide)
+
+        with-shim-env $root $bin {
+            create-store
+            save-session known ($outside | get --optional 0)
+
+            let rows = with-env {
+                XDG_CONFIG_HOME: $root
+                ZOXIDE_DIRS: ($recent | str join (char nl))
+            } { list-candidates }
+
+            let zoxide = $rows | where source == 'zoxide'
+            let expected = $outside | skip 1 | take 5
+            assert equal ($zoxide | get path) $expected 'project roots and sessions are dropped before the limit'
+            assert ($zoxide | all {|row| $row.label | str ends-with ' [Z]' }) 'the tag follows the path'
+            assert ($rows | where source != 'zoxide' | all {|row| not ($row.label | str contains '[Z]') }) 'other rows have no tag'
+        }
     }
 }

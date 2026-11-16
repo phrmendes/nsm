@@ -17,7 +17,6 @@ def "test get-config-defaults-without-a-file" []: nothing -> nothing {
                     running: '🟢'
                     stored: '⚫'
                     directory: '📁'
-                    host: '🌐'
                 }
                 restore: {file: null}
             }

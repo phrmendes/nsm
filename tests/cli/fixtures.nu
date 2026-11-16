@@ -163,7 +163,7 @@ export def make-shims [root: path]: nothing -> string {
 }
 
 # Return a PATH that keeps the current one and puts the bin shims first.
-export def with-bin [bin: path]: nothing -> string {
+def with-bin [bin: path]: nothing -> string {
     [$bin] | append $env.PATH | str join (char esep)
 }
 

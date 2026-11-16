@@ -73,5 +73,8 @@ def "test get-session-name-uses-git-root-for-all-descendants" []: nothing -> not
         }
 
         assert equal (get-session-name $outside) 'my-project-' 'outside a repository the basename is sanitized'
+
+        let without_git = with-env {PATH: []} { get-session-name ($repository | path join src) }
+        assert equal $without_git 'src' 'without git the basename is used'
     }
 }
