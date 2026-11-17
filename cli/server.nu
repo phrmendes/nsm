@@ -9,6 +9,10 @@ const REMOTE_TIMEOUT = 2
 const PROBE_TIMEOUT = 1
 const SIGNAL_ATTEMPTS = 10
 
+# The AppImage runtime keeps its mount while a process holds the files that it passes down.
+# Close every file above 2 before `nvim` runs, so the server does not hold the mount.
+const CLOSE_FDS = 'for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
+
 def start-server [session: record]: nothing -> nothing {
     remove-path $session.socket
 
@@ -21,7 +25,7 @@ def start-server [session: record]: nothing -> nothing {
     let restore = get-restore-args $session.path
 
     with-env {NSM_SESSION: $session.name} {
-        setsid --fork nvim --headless --listen $session.socket ...$restore o+e> /dev/null
+        setsid --fork bash -c $CLOSE_FDS bash nvim --headless --listen $session.socket ...$restore o+e> /dev/null
     }
 
     if not (wait-until { is-alive $session.socket }) {

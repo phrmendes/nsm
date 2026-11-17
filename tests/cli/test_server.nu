@@ -153,6 +153,27 @@ def "test start-runs-the-server-in-the-project" []: nothing -> nothing {
     }
 }
 
+def "test start-does-not-leak-inherited-files" []: nothing -> nothing {
+    in-store {|root|
+        let project = $root | path join project
+        let leak = $root | path join leak.txt
+        make-dir $project
+        write-text $leak 'x'
+        save-session demo $project
+        let socket = (get-session demo).socket
+
+        finally {|| stop-server $socket} {
+            let script = $'exec 9<($leak); exec nu --no-config-file cli/main.nu start demo'
+            let result = bash -c $script | complete
+
+            assert equal $result.exit_code 0 $result.stderr
+            let pid = find-server-pid $socket
+            let held = ls -l $'/proc/($pid)/fd' | where target == $leak
+            assert equal ($held | length) 0 'the server does not hold a file of its parent'
+        }
+    }
+}
+
 def "test get-restore-args-returns-the-configured-session-file" []: nothing -> nothing {
     in-root {|root|
         let project = $root | path join project

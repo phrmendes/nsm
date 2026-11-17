@@ -76,7 +76,7 @@ vim.api.nvim_create_autocmd("PackChanged", {
 })
 ```
 
-The script asks nothing. It also warns when Neovim or `/dev/fuse` is missing. Nix users do not need this hook, because the Nix package already ships the command.
+The script asks nothing. It also warns when Neovim, `fusermount3`, or `/dev/fuse` is missing. Nix users do not need this hook, because the Nix package already ships the command.
 
 ## Quick start
 
@@ -160,8 +160,9 @@ nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add 
 - Linux on x86_64
 - Neovim 0.12+
 - The `nsm` command: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid` and `timeout`
+- `bash` on `PATH` to start the server
 - `git` on `PATH` to name a session after its repository root. Without `git`, a session takes the directory name
-- `/dev/fuse` for the AppImage. Without it, export `APPIMAGE_EXTRACT_AND_RUN=1`
+- `fusermount3` and `/dev/fuse` for the AppImage. Without them, export `APPIMAGE_EXTRACT_AND_RUN=1`
 
 ### Optional
 

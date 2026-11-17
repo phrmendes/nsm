@@ -133,6 +133,7 @@
 ---
 --- - Linux on x86_64 and Neovim 0.12+
 --- - `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid`, and `timeout`
+--- - `bash` on `PATH` to start the server
 --- - `git` on `PATH` to name a session after its repository root
 --- - `zoxide` on `PATH` for recent directories
 ---

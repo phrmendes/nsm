@@ -24,8 +24,11 @@ const BASH = '_nsm() {
     fi
 
     case $command in
-    attach | a | start | kill | k)
+    attach | a | start)
         mapfile -t COMPREPLY < <(compgen -W "$(nsm names 2>/dev/null)" -- "$word"; compgen -d -- "$word")
+        ;;
+    kill | k)
+        mapfile -t COMPREPLY < <(compgen -W "$(nsm names 2>/dev/null)" -- "$word")
         ;;
     completions)
         mapfile -t COMPREPLY < <(compgen -W "bash zsh nu" -- "$word")
@@ -47,10 +50,14 @@ _nsm() {
     fi
 
     case $words[2] in
-    attach | a | start | kill | k)
+    attach | a | start)
         names=(${(f)"$(nsm names 2>/dev/null)"})
         _describe "session" names
         _files -/
+        ;;
+    kill | k)
+        names=(${(f)"$(nsm names 2>/dev/null)"})
+        _describe "session" names
         ;;
     completions)
         _values "shell" bash zsh nu

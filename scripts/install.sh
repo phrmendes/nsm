@@ -23,9 +23,9 @@ note() {
 
 download() {
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL "$1" -o "$2"
+        curl -fsSL "$1" -o "$2" || fail "Cannot download $1."
     elif command -v wget >/dev/null 2>&1; then
-        wget -qO "$2" "$1"
+        wget -qO "$2" "$1" || fail "Cannot download $1."
     else
         fail 'Install curl or wget first.'
     fi
@@ -52,7 +52,7 @@ download "$BASE_URL/$ASSET.sha256" "$temporary/$ASSET.sha256"
 
 command -v sha256sum >/dev/null 2>&1 || fail 'Install coreutils for sha256sum.'
 
-if ! (cd "$temporary" && sha256sum -c "$ASSET.sha256" >/dev/null); then
+if ! (cd "$temporary" && sha256sum -c "$ASSET.sha256" >/dev/null 2>&1); then
     fail 'The checksum does not match. The download is broken, or someone replaced it.'
 fi
 
@@ -69,8 +69,8 @@ command -v nvim >/dev/null 2>&1 || note 'Neovim is not on PATH. Install Neovim 0
 
 command -v git >/dev/null 2>&1 || note 'git is not on PATH. Sessions take the directory name, not the repository name.'
 
-if ! command -v fusermount3 >/dev/null 2>&1 && ! command -v fusermount >/dev/null 2>&1; then
-    note 'There is no fusermount. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
+if ! command -v fusermount3 >/dev/null 2>&1; then
+    note 'There is no fusermount3. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
 fi
 
 if [ ! -e /dev/fuse ]; then

@@ -26,7 +26,6 @@ let
     unset CDPATH
     HERE=$(cd -- "$(dirname -- "$0")" && pwd)
     export PATH="$HERE/usr/bin:$PATH"
-    export NU_LIB_DIRS="$HERE/usr/share/nsm/cli"
     exec "$HERE/usr/bin/nsm" "$@"
   '';
 
@@ -34,7 +33,7 @@ let
     #!/bin/sh
     unset CDPATH
     HERE=$(cd -- "$(dirname -- "$0")" && pwd)
-    exec "$HERE/nu" --no-config-file "$NU_LIB_DIRS/main.nu" "$@"
+    exec "$HERE/nu" --no-config-file "$HERE/../share/nsm/cli/main.nu" "$@"
   '';
 
   programs = {
