@@ -19,7 +19,8 @@ def get-width []: nothing -> int {
     $columns
 }
 
-# Return the text of a compact table of sessions, or the empty-state message.
+# Return the text of the sessions table, or a message when there are no sessions.
+# The status column holds `active` or `inactive`.
 export def format-sessions [sessions: table]: nothing -> string {
     if ($sessions | is-empty) {
         return 'No sessions yet. Use nsm attach <directory> to start one.'
@@ -30,9 +31,8 @@ export def format-sessions [sessions: table]: nothing -> string {
         {
             name: $session.name
             status: (match $session.state {
-                running => '●'
-                busy => '◐'
-                _ => '○'
+                running | busy => '● active'
+                _ => '○ inactive'
             })
             path: (get-display-path $session.path)
             attached: (if $session.attached_at == null { 'never' } else { $session.attached_at | into datetime | date humanize })

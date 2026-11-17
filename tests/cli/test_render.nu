@@ -38,7 +38,7 @@ def "test format-sessions-respects-narrow-columns" []: nothing -> nothing {
     assert ($narrow_has_path == false) 'the path is split across lines'
 }
 
-# Verify that the status column tells the three states apart.
+# Verify that the status column tells active sessions from inactive sessions.
 def "test format-sessions-marks-every-state" []: nothing -> nothing {
     let sessions = [
         {
@@ -63,7 +63,13 @@ def "test format-sessions-marks-every-state" []: nothing -> nothing {
 
     let text = with-env {COLUMNS: 200} { format-sessions $sessions }
 
-    assert ($text | str contains '●') 'a running session has a filled circle'
-    assert ($text | str contains '◐') 'a busy session has a half circle'
-    assert ($text | str contains '○') 'a stopped session has an open circle'
+    let rows = $text | lines
+    let status = {|name|
+        $rows | where {|row| $row | str contains $name } | first
+    }
+
+    assert ((do $status run) | str contains '● active') 'a running session is active'
+    assert ((do $status busy) | str contains '● active') 'a busy session is active'
+    assert ((do $status off) | str contains '○ inactive') 'a stopped session is inactive'
+    assert (not ($text | str contains '◐')) 'the table has no half circle'
 }
