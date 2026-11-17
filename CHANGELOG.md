@@ -1,3 +1,13 @@
+## v1.1.0 (2026-11-17)
+
+### Features
+
+- add last, current, list --json, version, and completions
+
+### Refactoring
+
+- remove comments that repeat names
+
 ## v1.0.1 (2026-11-17)
 
 ### Refactoring
