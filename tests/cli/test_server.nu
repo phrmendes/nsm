@@ -285,3 +285,24 @@ def "test get-state-tells-busy-from-stopped" []: nothing -> nothing {
         }
     }
 }
+
+# Verify that an answer that is not a number is a clear error, not an unsaved session.
+def "test has-unsaved-changes-rejects-an-empty-answer" []: nothing -> nothing {
+    in-root {|root|
+        let bin = make-shims $root
+        let project = $root | path join project
+        make-dir $project
+
+        with-shim-env $root $bin {
+            create-store
+            save-session demo $project
+            let socket = $root | path join demo.sock
+            set-socket $root demo $socket
+            '' | save --force $socket
+
+            let message = error-message { has-unsaved-changes demo }
+
+            assert (($message != null) and ($message | str contains 'answered')) $'expected an answer error in: ($message)'
+        }
+    }
+}

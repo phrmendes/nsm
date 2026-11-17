@@ -128,7 +128,7 @@ export def error-message [body: closure]: nothing -> oneof<string, nothing> {
 
 # Start a real headless server on the socket and wait until it answers.
 export def spawn-server [socket: path, ...files: path]: nothing -> nothing {
-    job spawn { nvim --headless --listen $socket ...$files } | ignore
+    job spawn { nvim --clean --headless --listen $socket ...$files } | ignore
 
     if not (wait-until { is-alive $socket }) {
         fail $'Cannot start a test server on ($socket).'
