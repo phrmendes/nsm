@@ -25,8 +25,6 @@ jobs:
           nix build .#nsm-appimage -o result
           APPIMAGE_EXTRACT_AND_RUN=1 ./result | grep -q switch
 
-  # A protected `main` blocks the bump commit unless the bot may push to it.
-  # Allow `github-actions[bot]` in the branch protection rules.
   release:
     needs: check
     if: github.event_name != 'pull_request' && !startsWith(github.event.head_commit.message || '', 'bump:')
