@@ -23,7 +23,7 @@ export def in-root [body: closure]: nothing -> nothing {
     try {
         do $body $root
     } catch {|err|
-        remove-path $root
+        try { remove-path $root }
         print --stderr ($err.rendered? | default $err.msg)
         error make {msg: $err.msg}
     }
@@ -138,6 +138,7 @@ export def spawn-server [socket: path, ...files: path]: nothing -> nothing {
 # Stop a server that a test started.
 export def stop-server [socket: path]: nothing -> nothing {
     nvim --clean --server $socket --remote-send '<C-\\><C-N>:qall!<CR>' | complete | ignore
+    wait-until { not ($socket | path exists) } | ignore
 }
 
 # Run a cleanup after the body, also when the body fails.
