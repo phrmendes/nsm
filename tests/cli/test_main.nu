@@ -9,7 +9,6 @@ use ./fixtures.nu [
     run-tests
     with-shim-env
 ]
-use ../../cli/picker.nu [get-preview]
 use ../../cli/store.nu [create-store get-session save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -90,29 +89,5 @@ def "test main-switch-opens-the-picked-session" []: nothing -> nothing {
             assert ((read-file $fzf_input) | str contains 'alpha') 'the picker lists the session'
             assert equal (read-file $log | lines | last) $'--server ($socket) --remote-ui' 'the picked session opens'
         }
-    }
-}
-
-# Verify that preview prints the preview of one row and rejects broken input.
-def "test preview-prints-the-preview-of-one-row" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        make-dir $project
-        make-file ($project | path join notes.txt)
-        let row = {
-            name: null
-            path: $project
-            source: directory
-        }
-        let encoded = $row | to json --raw | encode base64
-
-        let result = nu --no-config-file cli/main.nu preview $encoded | complete
-
-        assert equal $result.exit_code 0 $result.stderr
-        assert equal ($result.stdout | str trim) (get-preview $row | str trim) 'the row preview is printed'
-
-        let broken = nu --no-config-file cli/main.nu preview 'not base64' | complete
-        assert ($broken.exit_code != 0) 'broken input must fail'
-        assert ((($broken.stderr | ansi strip) =~ '\[E\] The preview data is invalid.')) $broken.stderr
     }
 }

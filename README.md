@@ -1,6 +1,6 @@
 # Neovim Server Manager
 
-Neovim Server Manager keeps one detached Neovim server per project. A picker in Neovim or in the terminal switches the current UI to a session with `:connect`, so the terminal keeps its window and its scrollback.
+Neovim Server Manager keeps one detached Neovim server per project. A picker in Neovim or in the terminal switches the current UI to a session with `:connect`. The terminal keeps its window and its scrollback.
 
 For full documentation, see [`:help nsm`](doc/nsm.txt).
 
@@ -46,7 +46,7 @@ curl -fsSL https://github.com/phrmendes/nsm/releases/latest/download/install.sh 
 
 The script downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf`, `setsid` and `timeout`, so you need Neovim and `git` on the host. It needs `/dev/fuse`. Without it, run `nsm` with `APPIMAGE_EXTRACT_AND_RUN=1`, which is slower.
 
-Each release carries its own version, so this installs `0.2.0`:
+Each release carries its own version, so this installs `1.0.0`:
 
 ```bash
 curl -fsSL https://github.com/phrmendes/nsm/releases/download/v1.0.0/install.sh | sh
@@ -89,7 +89,7 @@ Set your project roots in `~/.config/.nsm.nuon`:
 ```nuon
 {
   projects: ["~/Projects", "/mnt/external/projects"]
-  icons: { running: "🟢", stored: "⚫", directory: "📁" }
+  icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
   restore: { file: "Session.vim" }
 }
 ```
@@ -105,7 +105,7 @@ Omit `projects` to disable repository discovery. `restore.file` runs project Vim
 | `:Nsm kill`        | Stop a chosen session           |
 | `:checkhealth nsm` | Verify installation             |
 
-The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-kill)` and `<Plug>(nsm-new)`. `setup({ keymap = "<leader>s" })` changes the mapping, and `keymap = false` removes it.
+The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-kill)` and `<Plug>(nsm-new)`. `setup({ keymap = "<leader>s" })` maps a key to `<Plug>(nsm-switch)`, and `keymap = false` removes it.
 
 From Lua:
 
@@ -125,7 +125,7 @@ From the terminal:
 | `nsm last`                       | Return to the previous session                |
 | `nsm new <name> [path]`          | Create a named session                        |
 | `nsm start <name-or-directory>`  | Start a session and print its socket          |
-| `nsm list`                       | Print sessions as a table                     |
+| `nsm list`                       | Print sessions and their status               |
 | `nsm pick`                       | Print the picker rows as JSON                 |
 | `nsm kill [name]`                | Stop a session, or every session with `--all` |
 
@@ -146,9 +146,10 @@ From the terminal:
 This project uses [devenv](https://devenv.sh).
 
 ```bash
-devenv test              # run the CLI and plugin tests
-devenv tasks run doc:run # regenerate doc/nsm.txt
+devenv test # run the hooks and the tests
 ```
+
+The `docs` hook regenerates `doc/nsm.txt` when you commit a change in `lua/`.
 
 ## License
 

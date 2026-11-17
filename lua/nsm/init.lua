@@ -1,32 +1,65 @@
 --- *nsm.nvim* Neovim Server Manager
 ---
---- Open the session picker for the detached Neovim servers that nsm keeps.
+--- Keep one detached Neovim server per project. The picker switches the current
+--- UI to a session with `:connect`, so the terminal keeps its window.
 ---
---- `:Nsm` and the `<Plug>(nsm-switch)` mapping switch the current UI to the
---- chosen session with `:connect`. `:Nsm kill` stops a chosen session, and
---- `:Nsm new` starts one for a directory.
+--- Neovim commands ~
+--- *nsm-commands*
 ---
---- Usage ~
---- *nsm-usage*
+--- - `:Nsm`: pick a session and switch to it.
+--- - `:Nsm new`: start a session for a directory.
+--- - `:Nsm kill`: stop a chosen session.
+---
+--- The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-kill)`, and
+--- `<Plug>(nsm-new)`. The command `:detach` keeps the server running.
+---
+--- The picker opens from the rows of its previous call and refreshes them in
+--- the background. The first call, and the first call after a session starts or
+--- stops, wait for `nsm pick`.
+---
+--- Setup ~
+--- *nsm-setup*
+---
+--- >lua
+---   require("nsm").setup({ keymap = "<leader>w", scope = "~/Projects" })
+--- <
+---
+--- - `keymap`: the key that runs `<Plug>(nsm-switch)`. There is no key by
+---   default. Use `false` to remove the key.
+--- - `scope`: only list rows under this directory. The variable `NSM_SCOPE`
+---   does the same.
+---
+--- Terminal commands ~
+--- *nsm-terminal*
 ---
 --- - `nsm attach [name-or-directory]`: create or open a session, or pick one.
 --- - `nsm switch`: pick another session.
 --- - `nsm last`: return to the previous session.
 --- - `nsm new <name> [path]`: create a named session.
 --- - `nsm start <name-or-directory>`: start a session and print its socket.
---- - `nsm list`: print sessions as a table.
+--- - `nsm list`: print the sessions and their status.
 --- - `nsm pick`: print the picker rows as JSON.
 --- - `nsm kill [name]`: stop a session, or every session with `--all`.
 --- - `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k`: short forms.
 ---
---- Pass `--scope <path>` to `attach`, `switch`, or `kill`, or set `NSM_SCOPE`,
---- to limit the picker to one directory. `nsm kill` refuses unsaved buffers.
---- Pass `--force` to override it. `:detach` keeps the server running.
+--- Pass `--scope <path>` to `attach`, `switch`, or `kill` to limit the picker
+--- to one directory.
+---
+--- Session status ~
+--- *nsm-status*
+---
+--- - `active`: the server runs. It is busy when it is slow to answer, for
+---   example while Neovim runs a long task.
+--- - `inactive`: the server is stopped. `nsm attach` starts it again.
+---
+--- `nsm kill` refuses a session with unsaved buffers, and a server that does
+--- not answer. Both refusals use exit code 3. Pass `--force` to stop the session
+--- anyway. `--force` ends a server that does not answer with a signal.
 ---
 --- Configuration ~
 --- *nsm-configuration*
 ---
---- Create `~/.config/.nsm.nuon`:
+--- Create `~/.config/.nsm.nuon`. Every key is optional.
 ---
 --- >
 ---   {
@@ -36,17 +69,11 @@
 ---   }
 --- <
 ---
---- `projects` lists all project roots. Omit it to disable repository discovery.
---- `PROJECTS_DIR` is not read. `restore.file` is optional and runs project
---- Vimscript, so enable it only for trusted projects.
----
---- Remote use ~
---- *nsm-remote*
----
---- For SSH hosts, use `:connect ssh://<host>`. Neovim lists the hosts of
---- `~/.ssh/config` in its own menu, installs its own `nvim` on the host, and
---- copies your config there. To switch projects on that host, install `nsm`
---- with `fzf` and `git` there, then run `:Nsm` inside the remote session.
+--- - `projects`: the directories that hold your projects. The picker lists the
+---   git repositories up to four levels below them. Omit it for no repositories.
+--- - `icons`: the icon of each `source` in |nsm-rows|.
+--- - `restore.file`: a Vimscript file, relative to the project, that a new
+---   server runs. It runs project code, so enable it only for trusted projects.
 ---
 --- Picker rows ~
 --- *nsm-rows*
@@ -56,7 +83,23 @@
 --- - `label`: the text that the picker shows.
 --- - `name`: the session name, or null for a directory.
 --- - `path`: the directory.
---- - `source`: `running`, `busy`, `stored`, `directory`, or `zoxide`.
+--- - `source`: where the row comes from.
+---
+--- The values of `source` are:
+---
+--- - `running`: a session whose server answers.
+--- - `busy`: a session whose server is slow to answer.
+--- - `stored`: a session whose server is stopped.
+--- - `directory`: a git repository below a project root.
+--- - `zoxide`: a recent directory that zoxide knows.
+---
+--- Remote use ~
+--- *nsm-remote*
+---
+--- For SSH hosts, use `:connect ssh://<host>`. Neovim lists the hosts of
+--- `~/.ssh/config` in its own menu, installs its own `nvim` on the host, and
+--- copies your config there. To switch projects on that host, install `nsm`
+--- with `fzf` and `git` there, then run `:Nsm` inside the remote session.
 ---
 --- Requirements ~
 --- *nsm-requirements*
@@ -75,12 +118,14 @@
 ---@tag <Plug>(nsm-new)
 
 ---@class nsm.Config
----@field keymap string|false|nil Keymap for the session picker. Defaults to "<leader>w". Use false for no mapping.
+---@field keymap string|false|nil Key that runs `<Plug>(nsm-switch)`. There is no key by default. Use false to remove it.
 ---@field scope string|nil Only list rows under this directory.
 
 local nsm = {}
 local mapped
 local scope
+local cache = {} ---@type table<string, table[]>
+local generation = 0
 
 local cli = require("nsm.cli")
 
@@ -99,7 +144,39 @@ end
 ---@class nsm.PickOptions
 ---@field sessions boolean|nil Only list sessions.
 
+--- Forget the cached picker rows, because a session started or stopped.
+---
+---@private
+local function clear_cache()
+  cache = {}
+  generation = generation + 1
+end
+
+--- Ask `vim.ui.select` for a row.
+---
+---@param items table[]
+---@param on_choice fun(item: table)
+---@param opts nsm.PickOptions
+---@private
+local function select_row(items, on_choice, opts)
+  if #items == 0 then
+    local message = opts.sessions and "There are no sessions." or "There is nothing to pick. Start a session with `nsm new <name>`."
+    vim.notify(message, vim.log.levels.WARN)
+    return
+  end
+
+  vim.ui.select(items, {
+    prompt = "nsm> ",
+    format_item = function(item) return item.label end,
+  }, function(item)
+    if item then on_choice(item) end
+  end)
+end
+
 --- Ask for a row with `vim.ui.select`.
+---
+--- Open the picker at once from the rows of the previous call, and refresh
+--- the rows in the background. Wait for `nsm pick` when there are no rows yet.
 ---
 ---@param opts nsm.PickOptions
 ---@param on_choice fun(item: table)
@@ -109,6 +186,12 @@ local function pick(opts, on_choice)
   if opts.sessions then table.insert(command, "--sessions") end
   if scope and scope ~= "" then vim.list_extend(command, { "--scope", scope }) end
 
+  local key = table.concat(command, " ")
+  local cached = cache[key]
+  local started = generation
+
+  if cached then select_row(cached, on_choice, opts) end
+
   cli.run(command, function(output)
     local ok, items = pcall(vim.json.decode, output)
     if not ok or type(items) ~= "table" then
@@ -116,18 +199,8 @@ local function pick(opts, on_choice)
       return
     end
 
-    if #items == 0 then
-      local message = opts.sessions and "There are no sessions." or "There is nothing to pick. Start a session with `nsm new <name>`."
-      vim.notify(message, vim.log.levels.WARN)
-      return
-    end
-
-    vim.ui.select(items, {
-      prompt = "nsm> ",
-      format_item = function(item) return item.label end,
-    }, function(item)
-      if item then on_choice(item) end
-    end)
+    if started == generation and #items > 0 then cache[key] = items end
+    if not cached then select_row(items, on_choice, opts) end
   end)
 end
 
@@ -145,31 +218,31 @@ end
 ---@private
 local function start_and_connect(target)
   cli.run({ "nsm", "start", target }, function(socket)
+    clear_cache()
     if socket and socket ~= "" then nsm.connect(socket) end
   end)
 end
 
---- Notify the output of a command when it has any.
+--- Forget the cached rows, then show the output of `nsm kill` when it has any.
 ---
 ---@param stdout string
 ---@private
 local function notify_output(stdout)
+  clear_cache()
   if stdout ~= "" then vim.notify(stdout) end
 end
 
---- Open the picker and switch the current UI to the chosen session.
----
---- Start the chosen session when it is stopped, then detach the current UI from
---- its server and attach it to the chosen server with `:connect`.
+--- Pick a session, start it when it is stopped, and attach the current UI to it
+--- with `:connect`.
 ---
 function nsm.switch()
   pick({}, function(item) start_and_connect(get_target(item)) end)
 end
 
---- Pick a session and stop it, with a force stop when it has unsaved changes.
+--- Pick a session and stop it.
 ---
---- `nsm kill` exits with code 3 when it refuses the session, so the plugin can
---- offer a force stop.
+--- `nsm kill` refuses a session with unsaved buffers, and a server that does not
+--- answer. The plugin then offers a force stop.
 ---
 function nsm.kill()
   pick({ sessions = true }, function(item)
@@ -199,7 +272,7 @@ function nsm.new()
   end)
 end
 
--- Each name is also a function of the plugin.
+-- Each subcommand is also a function of the plugin.
 local subcommands = { "kill", "new" } ---@type string[]
 
 --- Run a `:Nsm` subcommand by name, or switch when the name is empty.
@@ -220,10 +293,10 @@ end
 ---@return string[]
 function nsm.complete() return vim.deepcopy(subcommands) end
 
---- Change the mapping of the plugin.
+--- Set the key and the scope of the plugin.
 ---
---- Leave the plugin defaults alone when `opts` is missing. Pass `keymap = false`
---- to remove the plugin mapping. A mapping that the user owns is never removed.
+--- Leave the defaults alone when `opts` is missing. Pass `keymap = false` to
+--- remove the key of the plugin. A key that you own stays.
 ---
 ---@param opts nsm.Config|nil
 function nsm.setup(opts)

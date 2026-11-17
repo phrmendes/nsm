@@ -119,6 +119,89 @@ T["switch"]["returns before the picker rows arrive"] = function()
   eq(result.connects, { "/state/nsm/work.sock" })
 end
 
+T["switch"]["opens from the cached rows and refreshes them"] = function()
+  local result = child.lua([[
+    local picks = 0
+    H.system(function()
+      picks = picks + 1
+      if picks == 1 then return { code = 0, stdout = H.rows.session, stderr = "" } end
+      return { code = 0, stdout = H.rows.directory, stderr = "", defer = true }
+    end)
+    H.select(false, false, false)
+    local nsm = H.load()
+
+    nsm.switch()
+    H.flush()
+    local first = H.items[1].label
+
+    H.items = nil
+    nsm.switch()
+    local second = H.items and H.items[1].label
+    H.pending()
+    H.flush()
+
+    H.items = nil
+    nsm.switch()
+
+    return { first = first, second = second, third = H.items and H.items[1].label, picks = picks }
+  ]])
+
+  eq(result, { first = "🟢 work  ~/work", second = "🟢 work  ~/work", third = "📁 ~/project", picks = 3 })
+end
+
+T["switch"]["waits for fresh rows after a session starts"] = function()
+  local shown = child.lua([[
+    local picks = 0
+    H.system(function(command)
+      if command[2] == "pick" then
+        picks = picks + 1
+        return { code = 0, stdout = H.rows.session, stderr = "", defer = picks > 1 }
+      end
+      return { code = 0, stdout = "/state/nsm/work.sock\n", stderr = "" }
+    end)
+    H.select(1, false)
+    local nsm = H.load()
+
+    nsm.switch()
+    H.flush()
+
+    H.items = nil
+    nsm.switch()
+
+    return H.items ~= nil
+  ]])
+
+  eq(shown, false)
+end
+
+T["switch"]["waits for fresh rows after a session stops"] = function()
+  local shown = child.lua([[
+    local picks = 0
+    H.system(function(command)
+      if command[2] == "pick" and command[3] == nil then
+        picks = picks + 1
+        return { code = 0, stdout = H.rows.session, stderr = "", defer = picks > 1 }
+      end
+      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
+      return { code = 0, stdout = "Stopped work.", stderr = "" }
+    end)
+    H.select(false, 1, false)
+    local nsm = H.load()
+
+    nsm.switch()
+    H.flush()
+    nsm.kill()
+    H.flush()
+
+    H.items = nil
+    nsm.switch()
+
+    return H.items ~= nil
+  ]])
+
+  eq(shown, false)
+end
+
 T["switch"]["starts a directory that has no session yet"] = function()
   local calls = child.lua([[
     H.system(function(command)

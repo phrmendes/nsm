@@ -4,7 +4,8 @@ use server.nu [get-state]
 use store.nu [list-recent-sessions]
 
 const ZOXIDE_LIMIT = 5
-const PREVIEW_LIMIT = 30
+# The shell command that previews the directory in the second field of a row.
+export const PREVIEW = 'if [ -d {2} ]; then printf "%s\\n\\nFiles\\n\\n" {2}; ls -1 {2} | head -30; else printf "%s\\n\\nThe directory does not exist.\\n" {2}; fi'
 const PROJECT_DEPTH = 4
 
 # Return the icon of a row, falling back to the directory icon.
@@ -62,27 +63,6 @@ def in-scope [path: string, scope: string]: nothing -> bool {
     $target == $scope or ($target | str starts-with $"($scope)/")
 }
 
-# Return the text that the picker shows for a row: the path and the files in it.
-export def get-preview [candidate: record]: nothing -> string {
-    if not ($candidate.path | path exists) {
-        return (
-            [$candidate.path '' 'The directory does not exist.']
-            | str join (char nl)
-        )
-    }
-
-    let body = try {
-        ls --short-names $candidate.path
-        | get name
-        | first $PREVIEW_LIMIT
-        | str join (char nl)
-    } catch {|err|
-        fail $'Cannot list ($candidate.path): ($err.msg)'
-    }
-
-    [$candidate.path 'Files' '' $body] | str join (char nl)
-}
-
 # Pick a row with fzf. Return its session name, its directory, or nothing on cancel.
 export def pick-candidate [--exclude: string = '', --sessions, --scope: string = '']: nothing -> oneof<string, nothing> {
     if (which fzf | is-empty) {
@@ -99,31 +79,34 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
         let label = $candidate.label | str replace --all --regex '[\t\n]' ' '
         [
             $label
-            ($candidate | to json --raw | encode base64)
+            $candidate.path
+            ($candidate.name | default '')
         ] | str join (char tab)
     }
     let input = $candidates | each $format | str join (char nl)
     let result = $input
-    | fzf --delimiter '\t' --with-nth '1' --preview 'nsm preview {2}' --layout reverse --height '50%' --prompt 'nsm> '
+    | fzf --delimiter '\t' --with-nth '1' --preview $PREVIEW --layout reverse --height '50%' --prompt 'nsm> '
     | complete
 
     if $result.exit_code != 0 {
         return null
     }
 
-    let picked = $result.stdout | str trim | split row (char tab) | get --optional 1
+    let picked = $result.stdout | lines | get --optional 0
 
     if $picked == null {
         return null
     }
 
-    let row = try {
-        $picked | decode base64 | decode | from json
-    } catch {
-        fail 'The picker returned invalid data.'
-    }
+    let fields = $picked | split row (char tab)
 
-    $row.name | default $row.path
+    let name = $fields | get --optional 2 | default ''
+
+    if ($name | is-empty) {
+        $fields | get 1
+    } else {
+        $name
+    }
 }
 
 # Return the git repositories under the configured project roots.

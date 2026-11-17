@@ -1,5 +1,5 @@
 use lib.nu [EXIT_UNSAVED fail report-error warn]
-use picker.nu [get-preview list-candidates pick-candidate]
+use picker.nu [list-candidates pick-candidate]
 use render.nu [format-sessions]
 use server.nu [
     connect-session
@@ -49,7 +49,7 @@ def kill-all [force: bool]: nothing -> nothing {
     }
 
     for session in $sessions {
-        stop-session $session.name
+        stop-session $session.name --force=$force
     }
 }
 
@@ -61,7 +61,7 @@ def kill-one [target: string, force: bool]: nothing -> nothing {
         fail $'The session ($target) has unsaved changes. Save them, or run `nsm kill --force ($target)`.' --code $EXIT_UNSAVED
     }
 
-    stop-session $target
+    stop-session $target --force=$force
 }
 
 # Return the description of a subcommand.
@@ -75,7 +75,9 @@ def get-summary [name: string]: nothing -> string {
     $command.description | str replace --regex '\.$' ''
 }
 
-# Pick another session and open it. The picker does not list the current session.
+# Pick another session and open it.
+#
+# The picker does not list the current session.
 def "main switch" [
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
@@ -104,7 +106,9 @@ def "main last" []: nothing -> nothing {
     }
 }
 
-# Create or attach to a session. The target is a session name or a directory. Without a target, pick one.
+# Create or attach to a session.
+#
+# The target is a session name or a directory. Without a target, pick one.
 def "main attach" [
     target?: string # A session name or a directory
     --scope: string = '' # Only pick sessions under this directory
@@ -114,7 +118,7 @@ def "main attach" [
     }
 }
 
-# Create a session with a name of your choice for a directory, and open it.
+# Create a named session for a directory, and open it.
 def "main new" [
     name: string # The name of the session
     path?: path # The directory of the project, the current directory by default
@@ -139,28 +143,16 @@ def "main new" [
     }
 }
 
-# Print a compact table of sessions or a clear empty-state message.
+# Print the sessions in a table.
+#
+# The table shows the name, the status, the path, and the time of the last attach.
+# The status is `active` or `inactive`.
 def "main list" []: nothing -> nothing {
     run-command {
         let sessions = list-sessions
-        | insert state {|session| get-state $session.socket }
+        | par-each --keep-order {|session| $session | insert state (get-state $session.socket) }
 
         print (format-sessions $sessions)
-    }
-}
-
-# Print a candidate preview for fzf.
-def "main preview" [
-    candidate: string # A candidate row as JSON
-]: nothing -> nothing {
-    report-error {
-        let row = try {
-            $candidate | decode base64 | decode | from json
-        } catch {
-            fail 'The preview data is invalid.'
-        }
-
-        print (get-preview $row)
     }
 }
 
@@ -177,7 +169,9 @@ def "main pick" [
     }
 }
 
-# Start the server of a session and print its socket. The session counts as attached.
+# Start the server of a session and print its socket.
+#
+# The session counts as attached.
 def "main start" [
     target: string # A session name or a directory
 ]: nothing -> nothing {
@@ -189,11 +183,15 @@ def "main start" [
     }
 }
 
-# Stop the server of a session and forget the session. Without a name, pick one of the sessions.
+# Stop the server of a session and forget the session.
+#
+# Without a name, pick one of the sessions.
+# A session with unsaved changes is refused, and so is a server that does not answer.
+# Use `--force` to stop it anyway.
 def "main kill" [
     name?: string # The session to stop
     --all (-a) # Stop every session
-    --force (-f) # Stop a session even when it has unsaved changes
+    --force (-f) # Stop a session even when it has unsaved changes or does not answer
     --scope: string = '' # Only pick sessions under this directory
 ]: nothing -> nothing {
     run-command {
@@ -220,7 +218,6 @@ def main []: nothing -> nothing {
         'main list'
         'main pick'
         'main start'
-        'main preview'
         'main kill'
     ]
 

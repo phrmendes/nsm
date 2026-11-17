@@ -13,7 +13,7 @@ use ./fixtures.nu [
     with-shim-env
     write-text
 ]
-use ../../cli/picker.nu [get-preview list-candidates list-projects pick-candidate]
+use ../../cli/picker.nu [list-candidates list-projects pick-candidate PREVIEW]
 use ../../cli/store.nu [create-store get-session save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -92,12 +92,13 @@ def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
 
             let rows = read-file $input | lines
             assert equal ($rows | length) 2 'fzf receives every candidate'
-            let decoded = $rows | each {|row| $row | split row (char tab) | get -o 1 | decode base64 | decode | from-json }
-            assert equal ($decoded | sort-by name) ($candidates | sort-by name) 'each row carries its candidate as JSON'
+            let fields = $rows | each {|row| $row | split row (char tab) }
+            assert equal ($fields | each { length } | uniq) [3] 'each row has a label, a path, and a name'
+            assert equal ($fields | each {|row| {name: $row.2, path: $row.1} } | sort-by name) ($candidates | select name path | sort-by name) 'each row carries its path and name'
 
-            assert equal $picked ($decoded | get -o 1 | get name) 'the second fzf row is returned'
-            assert ((read-file $log) =~ '--with-nth 1') 'fzf hides the encoded field'
-            assert ((read-file $log) =~ 'nsm preview \{2\}') 'fzf previews the encoded field'
+            assert equal $picked ($fields | get 1 | get 2) 'the second fzf row is returned'
+            assert ((read-file $log) =~ '--with-nth 1') 'fzf shows only the label'
+            assert ((read-file $log) | str contains 'ls -1 {2}') 'fzf previews the path field'
         }
     }
 }
@@ -165,7 +166,7 @@ def "test list-candidates-filters-by-scope" []: nothing -> nothing {
 }
 
 # Verify that the preview shows the path, a Files heading, and at most thirty entries.
-def "test get-preview-shows-a-directory-listing" []: nothing -> nothing {
+def "test preview-shows-a-directory-listing" []: nothing -> nothing {
     in-root {|root|
         let small = $root | path join small
         let large = $root | path join large
@@ -178,16 +179,14 @@ def "test get-preview-shows-a-directory-listing" []: nothing -> nothing {
             make-file ($large | path join $'file-($index | fill --width 2 --character 0).txt')
         }
 
-        let preview = get-preview {name: null, path: $small, source: 'directory'}
-        assert equal ($preview | lines | first) $small 'the preview starts with the path'
-        assert equal ($preview | lines | skip 1 | take 2) ['Files' ''] 'the heading follows the path'
-        assert equal ($preview | lines | skip 3) [alpha.txt beta.txt] 'the entries are listed'
+        let run = {|path| sh -c ($PREVIEW | str replace --all '{2}' $"'($path)'") | lines }
 
-        let limited = get-preview {name: null, path: $large, source: 'directory'}
-        assert equal ($limited | lines | skip 3 | length) 30 'only thirty entries are listed'
-
-        let hint = get-preview {name: null, path: $missing, source: 'directory'}
-        assert equal ($hint | lines) [$missing '' 'The directory does not exist.']
+        let listing = do $run $small
+        assert equal ($listing | first) $small 'the preview starts with the path'
+        assert equal ($listing | skip 1 | take 3) ['' 'Files' ''] 'the heading follows the path'
+        assert equal ($listing | skip 4) [alpha.txt beta.txt] 'the entries are listed'
+        assert equal (do $run $large | skip 4 | length) 30 'only thirty entries are listed'
+        assert equal (do $run $missing) [$missing '' 'The directory does not exist.']
     }
 }
 

@@ -1,6 +1,9 @@
 --- Health check for nsm.
 ---
---- Run it with `:checkhealth nsm`.
+--- Run it with `:checkhealth nsm`. It checks that these are available:
+---
+--- - `nsm` and Neovim 0.12 `:connect`. A missing one is an error.
+--- - `fzf` and `zoxide`. A missing one is a warning.
 ---
 ---@tag nsm-health
 
@@ -22,6 +25,8 @@ local function report(name, value, hint, level)
   h.ok(name .. ": " .. value)
 end
 
+--- Check that `nsm`, Neovim 0.12, `fzf`, and `zoxide` are available.
+---@private
 function health.check()
   h.start("nsm")
 

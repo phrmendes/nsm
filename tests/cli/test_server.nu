@@ -17,7 +17,14 @@ use ./fixtures.nu [
     with-shim-env
     write-text
 ]
-use ../../cli/server.nu [get-restore-args get-state has-unsaved-changes is-alive wait-until]
+use ../../cli/server.nu [
+    find-server-pid
+    get-restore-args
+    get-state
+    has-unsaved-changes
+    is-alive
+    wait-until
+]
 use ../../cli/store.nu [create-store get-session list-sessions save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
@@ -194,6 +201,79 @@ def "test start-passes-the-restore-file-to-the-server" []: nothing -> nothing {
 
             assert equal $result.exit_code 0 $result.stderr
             assert equal (read-file $log | lines | first) $'--headless --listen ($root | path join nsm demo.sock) -S ($file)' 'the server restores the session file'
+        }
+    }
+}
+
+# Stop a server by signal, also when it is stalled.
+def end-server [socket: path]: nothing -> nothing {
+    let pid = find-server-pid $socket
+
+    if $pid != null {
+        ^kill -s KILL $pid | complete | ignore
+    }
+}
+
+# Verify that a server that does not answer is refused by kill, and ended by kill --force.
+def "test kill-handles-a-stalled-server" []: nothing -> nothing {
+    in-store {|root|
+        let project = $root | path join project
+        let socket = $root | path join stalled.sock
+        make-dir $project
+        save-session stalled $project
+        set-socket $root stalled $socket
+
+        finally {|| end-server $socket} {
+            spawn-server $socket
+            let pid = find-server-pid $socket
+            assert ($pid != null) 'the server process is found by its socket'
+            assert equal (find-server-pid ($root | path join unused.sock)) null 'an unused socket has no process'
+
+            ^kill -s STOP $pid
+            let started = date now
+            let refused = nu --no-config-file cli/main.nu kill stalled | complete
+
+            assert equal $refused.exit_code 3 'a stalled server is refused with the unsaved code'
+            assert ($refused.stderr =~ 'does not answer') $refused.stderr
+            assert ((date now) - $started < 6sec) 'the refusal does not wait for long'
+            assert equal (get-session stalled | get name) stalled 'a refused kill keeps the session'
+
+            let forced = nu --no-config-file cli/main.nu kill stalled --force | complete
+
+            assert equal $forced.exit_code 0 $forced.stderr
+            assert (not ($socket | path exists)) 'a forced kill removes the socket'
+            assert equal (find-server-pid $socket) null 'a forced kill ends the process'
+            assert equal (list-sessions) [] 'a forced kill forgets the session'
+            assert ((date now) - $started < 12sec) 'a forced kill does not hang'
+        }
+    }
+}
+
+# Verify that list probes the sessions together, so two stalled servers cost one timeout.
+def "test list-probes-sessions-in-parallel" []: nothing -> nothing {
+    in-store {|root|
+        let project = $root | path join project
+        let first = $root | path join first.sock
+        let second = $root | path join second.sock
+        make-dir $project
+        save-session first $project
+        save-session second $project
+        set-socket $root first $first
+        set-socket $root second $second
+
+        finally {|| end-server $first; end-server $second} {
+            spawn-server $first
+            spawn-server $second
+            ^kill -s STOP (find-server-pid $first)
+            ^kill -s STOP (find-server-pid $second)
+
+            let started = date now
+            let result = nu --no-config-file cli/main.nu list | complete
+            let elapsed = (date now) - $started
+
+            assert equal $result.exit_code 0 $result.stderr
+            assert equal ($result.stdout | lines | where {|line| $line | str contains '● active' } | length) 2 'a stalled server counts as active'
+            assert ($elapsed < 1800ms) $'two stalled servers cost one timeout, not two: ($elapsed)'
         }
     }
 }
