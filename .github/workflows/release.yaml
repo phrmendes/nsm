@@ -60,7 +60,6 @@ jobs:
         uses: commitizen-tools/commitizen-action@0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          changelog_increment_filename: body.md
 
       - name: Read the new tag
         id: tag
@@ -115,4 +114,20 @@ jobs:
             error make { msg: 'The installer does not carry the version.' }
           }
 
-          gh release create $env.TAG --verify-tag --title $env.TAG --notes-file body.md nsm-x86_64.AppImage nsm-x86_64.AppImage.sha256 install.sh
+          let notes = (
+            open --raw CHANGELOG.md
+            | split row --regex '(?m)^## '
+            | where {|section| $section | str starts-with $"($env.TAG) " }
+            | get --optional 0
+            | default ''
+            | lines
+            | skip 1
+            | str join (char nl)
+            | str trim
+          )
+          if ($notes | is-empty) {
+            error make { msg: 'The changelog has no section for the tag.' }
+          }
+          $notes | save --force notes.md
+
+          gh release create $env.TAG --verify-tag --title $env.TAG --notes-file notes.md nsm-x86_64.AppImage nsm-x86_64.AppImage.sha256 install.sh
