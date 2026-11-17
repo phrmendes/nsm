@@ -13,11 +13,14 @@ jobs:
   check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out the code
+        uses: actions/checkout@v5
 
-      - uses: cachix/install-nix-action@v31
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
-      - uses: cachix/cachix-action@v16
+      - name: Use the devenv cache
+        uses: cachix/cachix-action@v16
         with:
           name: devenv
 
@@ -42,7 +45,8 @@ jobs:
     if: github.event_name != 'pull_request' && !startsWith(github.event.head_commit.message || '', 'bump:')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - name: Check out the code and its history
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
@@ -58,7 +62,8 @@ jobs:
           tag=$(git tag --points-at HEAD | grep -E '^v[0-9]' | head -n 1)
           echo "name=$tag" >> "$GITHUB_OUTPUT"
 
-      - uses: cachix/install-nix-action@v31
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
         if: steps.tag.outputs.name != ''
 
       - name: Build the AppImage
