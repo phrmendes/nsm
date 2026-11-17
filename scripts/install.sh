@@ -77,3 +77,18 @@ fi
 if [ ! -e /dev/fuse ]; then
     note 'There is no /dev/fuse. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
 fi
+
+if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
+    note 'AppArmor blocks unprivileged user namespaces, and the AppImage needs them.'
+    note 'Run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (it resets at reboot).'
+fi
+
+if [ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo 1)" = 0 ]; then
+    note 'The kernel blocks unprivileged user namespaces, and the AppImage needs them.'
+    note 'Run: sudo sysctl -w kernel.unprivileged_userns_clone=1 (it resets at reboot).'
+fi
+
+if [ "$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 1)" = 0 ]; then
+    note 'The kernel allows no user namespaces, and the AppImage needs them.'
+    note 'Run: sudo sysctl -w user.max_user_namespaces=10000 (it resets at reboot).'
+fi
