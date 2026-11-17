@@ -24,21 +24,33 @@
     MINI_NVIM = "${pkgs.vimPlugins.mini-nvim}";
   };
 
-  git-hooks.hooks.commitizen = {
-    enable = true;
-    name = "commitizen";
-    entry = "${pkgs.commitizen}/bin/cz check --commit-msg-file";
-    language = "system";
-    stages = [ "commit-msg" ];
-  };
-
   enterTest = "nu scripts/test.nu";
 
-  tasks = {
-    "lint:all".exec =
-      "nu-lint --format compact --config nu-lint.toml cli tests && shellcheck scripts/install.sh";
-    "format:check".exec = "nufmt --dry-run cli tests && stylua --check lua plugin scripts tests";
-    "doc:run".exec =
-      "nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniDoc.generate()' -c 'qa!'";
+  git-hooks.hooks = {
+    nufmt.enable = true;
+    stylua.enable = true;
+    commitizen = {
+      enable = true;
+      name = "commitizen";
+      entry = "${pkgs.commitizen}/bin/cz check --commit-msg-file";
+      language = "system";
+      stages = [ "commit-msg" ];
+    };
+    nu-lint = {
+      enable = true;
+      settings.configPath = ./nu-lint.toml;
+    };
+    shellcheck = {
+      enable = true;
+      excludes = [ "^\\.envrc$" ];
+    };
+    docs = {
+      enable = true;
+      name = "docs";
+      entry = "${pkgs.coreutils}/bin/env MINI_NVIM=${pkgs.vimPlugins.mini-nvim} ${pkgs.neovim}/bin/nvim --headless --noplugin -u ./scripts/init.lua -c 'lua MiniDoc.generate(nil, \"doc/nsm.txt\")' -c 'qa!'";
+      files = "^lua/";
+      pass_filenames = false;
+      language = "system";
+    };
   };
 }

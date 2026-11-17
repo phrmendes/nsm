@@ -34,7 +34,8 @@
             neovim-plugin = outputs.packages.neovimPlugin;
             nsm-appimage = nix-appimage.lib.${system}.mkAppImage {
               program = pkgs.lib.getExe outputs.packages.nsm;
-              runtime = nix-appimage.appimage-runtimes.${system}.appimagecrafters;
+
+              runtime = nix-appimage.appimage-runtimes.${system}.appimage-type2-runtime;
               squashfsArgs = [
                 "-comp"
                 "zstd"
@@ -51,15 +52,10 @@
             program = "${outputs.packages.nsm}/bin/nsm";
             meta.description = "Run the nsm CLI";
           };
-
-          checks = outputs.checks // {
-            appimage = (perSystem system).packages.nsm-appimage;
-          };
         };
     in
     {
       packages = forAllSystems (system: (perSystem system).packages);
       apps = forAllSystems (system: (perSystem system).apps);
-      checks = forAllSystems (system: (perSystem system).checks);
     };
 }
