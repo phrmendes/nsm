@@ -4,6 +4,7 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -16,12 +17,19 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
 
-      - name: Run the checks
+      - name: Run the tests, the lint and the format check
         run: nix flake check
 
+      - name: Smoke test the AppImage
+        run: |
+          nix build .#nsm-appimage -o result
+          APPIMAGE_EXTRACT_AND_RUN=1 ./result | grep -q switch
+
+  # A protected `main` blocks the bump commit unless the bot may push to it.
+  # Allow `github-actions[bot]` in the branch protection rules.
   release:
     needs: check
-    if: github.event_name == 'push' && !startsWith(github.event.head_commit.message, 'bump:')
+    if: github.event_name != 'pull_request' && !startsWith(github.event.head_commit.message || '', 'bump:')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
@@ -29,7 +37,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bump the version and tag it
-        uses: commitizen-tools/commitizen-action@master
+        uses: commitizen-tools/commitizen-action@0.27.1
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           changelog_increment_filename: body.md
@@ -44,20 +52,25 @@ jobs:
         if: steps.tag.outputs.name != ''
 
       - name: Build the AppImage
+        id: build
         if: steps.tag.outputs.name != ''
         run: |
+          if gh release view "${{ steps.tag.outputs.name }}" > /dev/null 2>&1; then
+            echo "The release already exists."
+            exit 0
+          fi
+
           nix build .#nsm-appimage
           cp -L result nsm-x86_64.AppImage
           chmod +w nsm-x86_64.AppImage
           sha256sum nsm-x86_64.AppImage > nsm-x86_64.AppImage.sha256
-
-      - name: Smoke test the AppImage
-        if: steps.tag.outputs.name != ''
-        run: |
           APPIMAGE_EXTRACT_AND_RUN=1 ./nsm-x86_64.AppImage | grep -q switch
+          echo "publish=true" >> "$GITHUB_OUTPUT"
+        env:
+          GH_TOKEN: ${{ github.token }}
 
       - name: Publish the release
-        if: steps.tag.outputs.name != ''
+        if: steps.tag.outputs.name != '' && steps.build.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}

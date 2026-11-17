@@ -63,4 +63,24 @@ in
         diff -u ${root}/doc/nsm.txt $TMPDIR/doc/nsm.txt
         touch $out
       '';
+
+  checks.static =
+    pkgs.runCommand "nsm-static-checks"
+      {
+        nativeBuildInputs = with pkgs; [
+          nufmt
+          nu-lint
+          shellcheck
+          stylua
+        ];
+        HOME = "$TMPDIR";
+      }
+      ''
+        cd ${root}
+        nufmt --dry-run cli tests
+        stylua --check lua plugin scripts tests
+        nu-lint --format compact --config nu-lint.toml cli tests
+        shellcheck scripts/install.sh
+        touch $out
+      '';
 }

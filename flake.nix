@@ -52,7 +52,9 @@
             meta.description = "Run the nsm CLI";
           };
 
-          checks = outputs.checks;
+          checks = outputs.checks // {
+            appimage = (perSystem system).packages.nsm-appimage;
+          };
         };
     in
     {
