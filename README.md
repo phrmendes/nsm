@@ -49,7 +49,7 @@ The script downloads the AppImage of the latest release, checks its checksum, an
 Each release carries its own version, so this installs `0.2.0`:
 
 ```bash
-curl -fsSL https://github.com/phrmendes/nsm/releases/download/v0.2.0/install.sh | sh
+curl -fsSL https://github.com/phrmendes/nsm/releases/download/v1.0.0/install.sh | sh
 ```
 
 ### Plugin
