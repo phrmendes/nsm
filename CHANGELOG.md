@@ -1,3 +1,13 @@
+## v1.0.1 (2026-11-17)
+
+### Refactoring
+
+- **cli**: show active and inactive sessions
+
+### Performance
+
+- stop waiting on servers that do not answer
+
 ## v1.0.0 (2026-11-17)
 
 ### Features
