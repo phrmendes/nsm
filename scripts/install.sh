@@ -2,14 +2,13 @@
 # Install the nsm command from a GitHub release.
 #
 # Environment:
-#   NSM_VERSION      Release version to install, without the leading "v" (default: latest)
 #   NSM_BASE_URL     Download base URL (default: the GitHub release of that version)
 #   NSM_INSTALL_DIR  Install directory (default: ~/.local/bin)
 
 set -eu
 
 ASSET=nsm-x86_64.AppImage
-VERSION=${NSM_VERSION:-latest}
+VERSION=latest
 INSTALL_DIR=${NSM_INSTALL_DIR:-$HOME/.local/bin}
 BASE_URL=${NSM_BASE_URL:-}
 
@@ -40,7 +39,7 @@ if [ "$BASE_URL" = "" ]; then
     if [ "$VERSION" = latest ]; then
         BASE_URL="$BASE_URL/latest/download"
     else
-        BASE_URL="$BASE_URL/download/v${VERSION#v}"
+        BASE_URL="$BASE_URL/download/v$VERSION"
     fi
 fi
 
@@ -76,19 +75,4 @@ fi
 
 if [ ! -e /dev/fuse ]; then
     note 'There is no /dev/fuse. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
-fi
-
-if [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null || echo 0)" = 1 ]; then
-    note 'AppArmor blocks unprivileged user namespaces, and the AppImage needs them.'
-    note 'Run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 (it resets at reboot).'
-fi
-
-if [ "$(cat /proc/sys/kernel/unprivileged_userns_clone 2>/dev/null || echo 1)" = 0 ]; then
-    note 'The kernel blocks unprivileged user namespaces, and the AppImage needs them.'
-    note 'Run: sudo sysctl -w kernel.unprivileged_userns_clone=1 (it resets at reboot).'
-fi
-
-if [ "$(cat /proc/sys/user/max_user_namespaces 2>/dev/null || echo 1)" = 0 ]; then
-    note 'The kernel allows no user namespaces, and the AppImage needs them.'
-    note 'Run: sudo sysctl -w user.max_user_namespaces=10000 (it resets at reboot).'
 fi

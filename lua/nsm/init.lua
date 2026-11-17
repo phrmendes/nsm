@@ -62,7 +62,7 @@
 --- *nsm-requirements*
 ---
 --- - Linux on x86_64 and Neovim 0.12+
---- - `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, and `util-linux`
+--- - `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid`, and `timeout`
 --- - `git` on `PATH` to name a session after its repository root
 --- - `zoxide` on `PATH` for recent directories
 ---

@@ -27,9 +27,6 @@ jobs:
       - name: Run the hooks and the tests
         run: devenv test
 
-      - name: Allow unprivileged user namespaces
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-
       - name: Build and smoke test the AppImage
         run: |
           nix build .#nsm-appimage -o result
@@ -64,10 +61,6 @@ jobs:
       - uses: cachix/install-nix-action@v31
         if: steps.tag.outputs.name != ''
 
-      - name: Allow unprivileged user namespaces
-        if: steps.tag.outputs.name != ''
-        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-
       - name: Build the AppImage
         id: build
         if: steps.tag.outputs.name != ''
@@ -92,10 +85,14 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
         run: |
+          version=${TAG#v}
+          sed "s/^VERSION=latest$/VERSION=$version/" scripts/install.sh > install.sh
+          grep -q "^VERSION=$version$" install.sh
+
           gh release create "$TAG" \
             --verify-tag \
             --title "$TAG" \
             --notes-file body.md \
             nsm-x86_64.AppImage \
             nsm-x86_64.AppImage.sha256 \
-            scripts/install.sh
+            install.sh

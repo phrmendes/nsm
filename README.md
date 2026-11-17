@@ -12,7 +12,6 @@ For full documentation, see [`:help nsm`](doc/nsm.txt).
 - **Stop and start** — `:Nsm kill` stops a session and offers a force stop when it has unsaved buffers. `:Nsm new` starts a session for a directory.
 - **Scope filter** — limit the picker to one directory with `--scope` or `NSM_SCOPE`.
 - **Session restore** — run a project Vimscript file when a session starts.
-- **Terminal parity** — the `nsm` command reads the same SQLite store.
 
 ## Installation
 
@@ -45,14 +44,12 @@ For systems without Nix, install the command into `~/.local/bin` with the instal
 curl -fsSL https://github.com/phrmendes/nsm/releases/latest/download/install.sh | sh
 ```
 
-The script downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf` and `util-linux`, so you need Neovim and `git` on the host. It needs `/dev/fuse`. Without it, run `nsm` with `APPIMAGE_EXTRACT_AND_RUN=1`, which is slower.
+The script downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf`, `setsid` and `timeout`, so you need Neovim and `git` on the host. It needs `/dev/fuse`. Without it, run `nsm` with `APPIMAGE_EXTRACT_AND_RUN=1`, which is slower.
 
-The AppImage also needs unprivileged user namespaces. Ubuntu 23.10 and later restrict them with AppArmor, and the image then stops with `cannot write uid_map: Operation not permitted`. Allow them with `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`, and put the setting in `/etc/sysctl.d` because it resets at reboot.
-
-Pin a version with `NSM_VERSION=0.2.0`, and change the directory with `NSM_INSTALL_DIR`:
+Each release carries its own version, so this installs `0.2.0`:
 
 ```bash
-curl -fsSL https://github.com/phrmendes/nsm/releases/download/v0.2.0/install.sh | NSM_VERSION=0.2.0 sh
+curl -fsSL https://github.com/phrmendes/nsm/releases/download/v0.2.0/install.sh | sh
 ```
 
 ### Plugin
@@ -136,9 +133,9 @@ From the terminal:
 
 - Linux on x86_64
 - Neovim 0.12+
-- The `nsm` command: the Nix package and the AppImage bundle Nushell, `fzf` and `util-linux`
+- The `nsm` command: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid` and `timeout`
 - `git` on `PATH` to name a session after its repository root. Without `git`, a session takes the directory name
-- `/dev/fuse` and unprivileged user namespaces for the AppImage. Ubuntu 23.10 and later need `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`
+- `/dev/fuse` for the AppImage. Without it, export `APPIMAGE_EXTRACT_AND_RUN=1`
 
 ### Optional
 

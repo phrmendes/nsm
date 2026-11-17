@@ -22,6 +22,10 @@
         system:
         let
           pkgs = import nixpkgs { inherit system; };
+          appimage = pkgs.callPackage ./nix/appimage.nix {
+            root = self;
+            runtime = nix-appimage.appimage-runtimes.${system}.appimage-type2-runtime;
+          };
           outputs = import ./nix/lib.nix {
             inherit pkgs;
             root = self;
@@ -32,19 +36,8 @@
             default = outputs.packages.nsm;
             nsm = outputs.packages.nsm;
             neovim-plugin = outputs.packages.neovimPlugin;
-            nsm-appimage = nix-appimage.lib.${system}.mkAppImage {
-              program = pkgs.lib.getExe outputs.packages.nsm;
-
-              runtime = nix-appimage.appimage-runtimes.${system}.appimage-type2-runtime;
-              squashfsArgs = [
-                "-comp"
-                "zstd"
-                "-Xcompression-level"
-                "19"
-                "-b"
-                "1M"
-              ];
-            };
+            nsm-appdir = appimage.appdir;
+            nsm-appimage = appimage.image;
           };
 
           apps.default = {
