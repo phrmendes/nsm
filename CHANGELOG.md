@@ -1,3 +1,9 @@
+## v1.0.0 (2026-11-17)
+
+### Feat
+
+- release the first stable version
+
 ## v0.2.0 (2026-11-17)
 
 ### Feat
