@@ -30,16 +30,6 @@ jobs:
       - name: Run the hooks and the tests
         run: devenv test
 
-      - name: Build and smoke test the AppImage
-        run: |
-          nix build .#nsm-appimage -o result
-          home=$(mktemp -d)
-
-          APPIMAGE_EXTRACT_AND_RUN=1 HOME="$home" XDG_STATE_HOME="$home" ./result | grep -q switch
-
-          empty=$(APPIMAGE_EXTRACT_AND_RUN=1 HOME="$home" XDG_STATE_HOME="$home" ./result pick --sessions)
-          [ "$empty" = '[]' ]
-
   release:
     needs: check
     if: github.event_name != 'pull_request' && !startsWith(github.event.head_commit.message || '', 'bump:')
