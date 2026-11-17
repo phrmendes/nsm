@@ -8,13 +8,11 @@ use ../../cli/lib.nu [EXIT_UNSAVED fail get-display-path get-project-path]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-# Verify that fail raises a catchable error with its message.
 def "test fail-stays-catchable" []: nothing -> nothing {
     assert equal (error-message { fail 'boom' }) 'boom'
     assert equal (error-message { fail 'boom' --code $EXIT_UNSAVED }) 'boom'
 }
 
-# Verify that report-error exits with the code that the error carries.
 def "test report-error-exits-with-the-carried-code" []: nothing -> nothing {
     let cases = [
         [name, command, expected];
@@ -44,7 +42,6 @@ def "test report-error-exits-with-the-carried-code" []: nothing -> nothing {
     }
 }
 
-# Verify home abbreviation at path boundaries and preserve unrelated paths.
 def "test get-display-path-abbreviates-only-home-descendants" []: nothing -> nothing {
     let cases = [
         [name, path, expected];
@@ -68,7 +65,6 @@ def "test get-display-path-abbreviates-only-home-descendants" []: nothing -> not
     }
 }
 
-# Verify that a path under a project root loses the longest matching root.
 def "test get-project-path-strips-the-longest-project-root" []: nothing -> nothing {
     let cases = [
         [name, path, roots, expected];

@@ -9,7 +9,6 @@ const REMOTE_TIMEOUT = 2
 const PROBE_TIMEOUT = 1
 const SIGNAL_ATTEMPTS = 10
 
-# Start a detached server for a session, in the directory of the project.
 def start-server [session: record]: nothing -> nothing {
     remove-path $session.socket
 
@@ -36,7 +35,6 @@ def remote-expr [socket: path, expression: string, --timeout: int = $REMOTE_TIME
     timeout $timeout nvim --clean --server $socket --remote-expr $expression | complete
 }
 
-# Open a session in the current terminal. The UI closes on `:detach`.
 def open-session [session: record]: nothing -> nothing {
     touch-session $session.name
 
@@ -105,7 +103,6 @@ export def has-unsaved-changes [name: string]: nothing -> bool {
     $count != '0'
 }
 
-# Return the names of the live sessions that have unsaved changes.
 export def get-dirty-sessions [sessions: table]: nothing -> list<string> {
     $sessions
     | par-each --keep-order {|session|
@@ -115,7 +112,6 @@ export def get-dirty-sessions [sessions: table]: nothing -> list<string> {
     | get name
 }
 
-# Return the process id of the server that listens on a socket, or nothing.
 export def find-server-pid [socket: path]: nothing -> oneof<int, nothing> {
     let pids = glob '/proc/[0-9]*/cmdline'
     | where {|file|
@@ -142,7 +138,6 @@ def is-running [pid: int]: nothing -> bool {
     }
 }
 
-# Send a signal to a server and wait until its process is gone.
 def signal-server [pid: int, signal: string]: nothing -> bool {
     ^kill -s $signal $pid | complete | ignore
 
@@ -174,7 +169,6 @@ def stop-server [socket: path, force: bool]: nothing -> nothing {
     }
 }
 
-# Stop the server of a session and forget it.
 export def stop-session [name: string, --force]: nothing -> nothing {
     let session = get-session $name
 

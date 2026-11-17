@@ -10,8 +10,6 @@ local cli = {}
 ---@private
 cli.UNSAVED = 3
 
---- Strip the ANSI colour codes from a CLI message.
----
 ---@param text string|nil
 ---@return string
 ---@private
@@ -20,14 +18,10 @@ local function strip_ansi(text)
   return stripped
 end
 
---- Notify an error, without the ANSI colour codes of the CLI.
----
 ---@param err any
 ---@private
 function cli.notify_error(err) vim.notify(strip_ansi(tostring(err)), vim.log.levels.ERROR) end
 
---- Return the message of a failed command.
----
 ---@param command string[]
 ---@param result vim.SystemCompleted
 ---@return string
@@ -37,8 +31,6 @@ function cli.get_message(command, result)
   return stderr ~= "" and stderr or ("`" .. table.concat(command, " ") .. "` failed")
 end
 
---- Notify the failure of a command.
----
 ---@param command string[]
 ---@param result vim.SystemCompleted
 ---@private

@@ -8,12 +8,10 @@ const ZOXIDE_LIMIT = 5
 export const PREVIEW = 'if [ -d {2} ]; then printf "%s\\n\\nFiles\\n\\n" {2}; ls -1 {2} | head -30; else printf "%s\\n\\nThe directory does not exist.\\n" {2}; fi'
 const PROJECT_DEPTH = 4
 
-# Return the icon of a row, falling back to the directory icon.
 def get-icon [source: string, icons: record]: nothing -> string {
     $icons | get --optional $source | default $icons.directory
 }
 
-# Return the label of a row: the icon, the session name when it has one, the path, and the zoxide tag.
 def get-label [row: record, options: record]: nothing -> string {
     let icon = get-icon $row.source $options.icons
     let path = get-project-path $row.path $options.roots
@@ -41,7 +39,6 @@ def get-scope [scope: string]: nothing -> string {
     }
 }
 
-# Return the directories that zoxide knows, most used first.
 def list-zoxide []: nothing -> list<string> {
     if (which zoxide | is-empty) {
         warn 'zoxide is not installed. Recent directories are hidden.'
@@ -63,7 +60,6 @@ def in-scope [path: string, scope: string]: nothing -> bool {
     $target == $scope or ($target | str starts-with $"($scope)/")
 }
 
-# Pick a row with fzf. Return its session name, its directory, or nothing on cancel.
 export def pick-candidate [--exclude: string = '', --sessions, --scope: string = '']: nothing -> oneof<string, nothing> {
     if (which fzf | is-empty) {
         fail 'The picker needs fzf. Install fzf and put it on PATH.'
@@ -109,7 +105,6 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
     }
 }
 
-# Return the git repositories under the configured project roots.
 export def list-projects []: nothing -> list<string> {
     (get-config).projects
     | each {|root|
@@ -125,7 +120,6 @@ export def list-projects []: nothing -> list<string> {
     | uniq
 }
 
-# Return the picker rows of the sessions, without the excluded name.
 def list-session-rows [exclude: string, options: record]: nothing -> table {
     list-recent-sessions
     | where name != $exclude
@@ -135,7 +129,6 @@ def list-session-rows [exclude: string, options: record]: nothing -> table {
     | select label name path source
 }
 
-# Return the picker rows of the directories that are not sessions.
 def make-directory-rows [paths: list<string>, source: string, options: record]: nothing -> table {
     $paths
     | uniq

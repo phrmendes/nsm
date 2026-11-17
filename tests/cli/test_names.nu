@@ -9,7 +9,6 @@ use ../../cli/names.nu [check-name get-free-name get-session-name]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-# Verify valid names and exact rejection messages for invalid names.
 def "test check-name-covers-valid-and-invalid-inputs" []: nothing -> nothing {
     let cases = [
         [name, valid, expected_error];
@@ -33,7 +32,6 @@ def "test check-name-covers-valid-and-invalid-inputs" []: nothing -> nothing {
     }
 }
 
-# Verify base selection, collision suffixes, gaps, and a long collision run.
 def "test get-free-name-selects-the-first-available-candidate" []: nothing -> nothing {
     let exhausted = ['app'] | append (2..1000 | each {|suffix| $'app-($suffix)' })
     let cases = [
@@ -51,7 +49,6 @@ def "test get-free-name-selects-the-first-available-candidate" []: nothing -> no
     }
 }
 
-# Verify that a directory takes the name of its git root, or its own basename.
 def "test get-session-name-uses-git-root-for-all-descendants" []: nothing -> nothing {
     in-root {|root|
         let repository = $root | path join 'my repo'

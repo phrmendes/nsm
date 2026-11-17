@@ -71,7 +71,6 @@ def "test list-projects-discovers-repositories-under-configured-roots" []: nothi
     }
 }
 
-# Verify that pick-candidate returns the row that fzf selects, with its data intact.
 def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin
@@ -103,7 +102,6 @@ def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
     }
 }
 
-# Verify that pick prints JSON rows with the icons and the session state.
 def "test pick-prints-json-rows" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin
@@ -165,7 +163,6 @@ def "test list-candidates-filters-by-scope" []: nothing -> nothing {
     }
 }
 
-# Verify that the preview shows the path, a Files heading, and at most thirty entries.
 def "test preview-shows-a-directory-listing" []: nothing -> nothing {
     in-root {|root|
         let small = $root | path join small
@@ -190,7 +187,6 @@ def "test preview-shows-a-directory-listing" []: nothing -> nothing {
     }
 }
 
-# Verify that labels lose the configured project root and keep the display path elsewhere.
 def "test labels-show-paths-relative-to-the-project-roots" []: nothing -> nothing {
     in-root {|root|
         let projects = $root | path join projects
@@ -251,7 +247,6 @@ def "test zoxide-rows-skip-sessions-and-project-roots" []: nothing -> nothing {
     }
 }
 
-# Verify that a session whose server answers too late gets the busy icon.
 def "test busy-sessions-get-the-busy-icon" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin

@@ -1,6 +1,5 @@
 use lib.nu [fail]
 
-# Stop when the name is empty or has a character that is not safe in a file name.
 export def check-name [name: string]: nothing -> nothing {
     if $name !~ '^[a-zA-Z0-9._-]+$' {
         fail 'A session name may only hold letters, digits, dots, dashes and underscores.'

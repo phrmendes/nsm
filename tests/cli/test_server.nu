@@ -29,7 +29,6 @@ use ../../cli/store.nu [create-store get-session list-sessions save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-# Verify that start prints the stored socket, starts the server on it, and records the attachment.
 def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> nothing {
     in-root {|root|
         let log = $root | path join calls.log
@@ -55,7 +54,6 @@ def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> not
     }
 }
 
-# Verify that kill refuses unsaved changes without --force, and stops clean and forced sessions.
 def "test kill-guards-unsaved-changes" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
@@ -97,7 +95,6 @@ def "test kill-guards-unsaved-changes" []: nothing -> nothing {
     }
 }
 
-# Verify that a stopped session gets started and opened, and a running one is only opened.
 def "test attach-starts-a-stopped-session-and-reuses-a-running-one" []: nothing -> nothing {
     in-root {|root|
         let log = $root | path join calls.log
@@ -137,7 +134,6 @@ def "test has-unsaved-changes-fails-on-a-dead-socket" []: nothing -> nothing {
     }
 }
 
-# Verify that a started server runs in the project with the session name in its environment.
 def "test start-runs-the-server-in-the-project" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
@@ -157,7 +153,6 @@ def "test start-runs-the-server-in-the-project" []: nothing -> nothing {
     }
 }
 
-# Verify that the restore arguments follow the configuration and the file.
 def "test get-restore-args-returns-the-configured-session-file" []: nothing -> nothing {
     in-root {|root|
         let project = $root | path join project
@@ -180,7 +175,6 @@ def "test get-restore-args-returns-the-configured-session-file" []: nothing -> n
     }
 }
 
-# Verify that a configured session file reaches the server command line.
 def "test start-passes-the-restore-file-to-the-server" []: nothing -> nothing {
     in-root {|root|
         let log = $root | path join calls.log
@@ -278,7 +272,6 @@ def "test list-probes-sessions-in-parallel" []: nothing -> nothing {
     }
 }
 
-# Verify that kill --all refuses a dirty session and stops every clean one.
 def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project

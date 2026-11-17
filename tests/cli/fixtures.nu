@@ -2,12 +2,10 @@ use ../../cli/lib.nu [fail remove-path]
 use ../../cli/server.nu [is-alive wait-until]
 use ../../cli/store.nu [create-store]
 
-# Return the path of a bash that is on PATH.
 export def get-bash []: nothing -> string {
     which bash | get --optional 0.path | default '/usr/bin/env bash'
 }
 
-# Create a directory, or fail with the reason.
 export def make-dir [path: path]: nothing -> nothing {
     try {
         mkdir $path
@@ -80,7 +78,6 @@ export def make-fzf-shim [path: path]: nothing -> nothing {
     chmod +x $path
 }
 
-# Create an empty file, or fail with the reason.
 export def make-file [path: path]: nothing -> nothing {
     try {
         '' | save --force $path
@@ -89,7 +86,6 @@ export def make-file [path: path]: nothing -> nothing {
     }
 }
 
-# Read a text file, or fail with the reason.
 export def read-file [path: path]: nothing -> string {
     try {
         open --raw $path
@@ -98,7 +94,6 @@ export def read-file [path: path]: nothing -> string {
     }
 }
 
-# Write a text file, or fail with the reason.
 export def write-text [path: path, text: string]: nothing -> nothing {
     try {
         $text | save --force $path
@@ -107,7 +102,6 @@ export def write-text [path: path, text: string]: nothing -> nothing {
     }
 }
 
-# Run SQL against a database file with bound parameters.
 export def query-store [db: path, sql: string, --params: record = {}]: nothing -> table {
     try {
         open $db | query db $sql --params $params
@@ -116,7 +110,6 @@ export def query-store [db: path, sql: string, --params: record = {}]: nothing -
     }
 }
 
-# Return the message of an error, or null when the closure succeeds.
 export def error-message [body: closure]: nothing -> oneof<string, nothing> {
     try {
         do $body | ignore
@@ -135,7 +128,6 @@ export def spawn-server [socket: path, ...files: path]: nothing -> nothing {
     }
 }
 
-# Stop a server that a test started.
 export def stop-server [socket: path]: nothing -> nothing {
     nvim --clean --server $socket --remote-send '<C-\\><C-N>:qall!<CR>' | complete | ignore
     wait-until { not ($socket | path exists) } | ignore
@@ -185,7 +177,6 @@ export def with-shim-env [
     } | ignore
 }
 
-# Point the socket of a session at a given path.
 export def set-socket [root: path, name: string, socket: path]: nothing -> nothing {
     query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: $name, socket: $socket} | ignore
 }
@@ -212,7 +203,6 @@ export def run-tests [file: path]: nothing -> nothing {
     print '✅ Tests completed successfully'
 }
 
-# Parse JSON text, or fail with the reason.
 export def from-json []: string -> table {
     try {
         from json

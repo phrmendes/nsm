@@ -11,7 +11,6 @@ export def fail [message: string, --code(-c): int = 1]: oneof<nothing, record> -
     }
 }
 
-# Return the exit code that a caught error carries, or 1.
 def get-exit-code [err: record]: nothing -> int {
     let code = $err | get --optional details.code
 
@@ -22,7 +21,6 @@ def get-exit-code [err: record]: nothing -> int {
     $code | str replace 'nsm::exit::' '' | into int
 }
 
-# Print a warning to stderr with a yellow icon.
 export def warn [message: string]: nothing -> nothing {
     print --stderr $"(ansi yellow)[W](ansi reset) ($message)"
 }
@@ -37,7 +35,6 @@ export def report-error [body: closure]: nothing -> nothing {
     }
 }
 
-# Remove a file or a directory when it exists, or fail with the reason.
 export def remove-path [path: path]: nothing -> nothing {
     try {
         rm --force --recursive $path

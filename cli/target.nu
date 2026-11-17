@@ -2,7 +2,6 @@ use lib.nu [fail]
 use names.nu [get-free-name get-session-name]
 use store.nu [find-session find-session-by-path list-session-names]
 
-# Resolve a session name or a directory to the name and the directory of a session.
 export def resolve-target [target: string]: nothing -> record<name: string, path: string> {
     let named = find-session $target
 

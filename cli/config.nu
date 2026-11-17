@@ -7,12 +7,10 @@ const DEFAULT_ICONS = {
     directory: '📁'
 }
 
-# Return the path of the configuration file.
 def get-config-file []: nothing -> string {
     ($env.XDG_CONFIG_HOME? | default ($env.HOME | path join .config)) | path join .nsm.nuon
 }
 
-# Return the configuration, with the defaults for the missing keys.
 export def get-config []: nothing -> record {
     let file = get-config-file
 

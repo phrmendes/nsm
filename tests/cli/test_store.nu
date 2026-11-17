@@ -10,7 +10,6 @@ use ../../cli/target.nu [resolve-target]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-# Verify target resolution by session name, saved path, new path, and colliding basename.
 def "test resolve-target-resolves-names-and-paths" []: nothing -> nothing {
     in-store {|root|
         let known_path = $root | path join known
@@ -38,7 +37,6 @@ def "test resolve-target-resolves-names-and-paths" []: nothing -> nothing {
     }
 }
 
-# Verify session updates preserve creation and attachment metadata while changing the path.
 def "test save-session-updates-path-and-preserves-metadata" []: nothing -> nothing {
     in-store {|root|
         let first_path = $root | path join first
@@ -61,7 +59,6 @@ def "test save-session-updates-path-and-preserves-metadata" []: nothing -> nothi
     }
 }
 
-# Verify that last-session selection handles zero, one, two, and several attachments.
 def "test previous-session-selection-skips-unattached-sessions" []: nothing -> nothing {
     let cases = [
         [name, attached, expected];
@@ -104,7 +101,6 @@ def "test previous-session-selection-skips-unattached-sessions" []: nothing -> n
     }
 }
 
-# Verify that the store migrates legacy attachment times only once.
 def "test create-store-migrates-only-legacy-attachment-times" []: nothing -> nothing {
     let cases = [
         [name, version, attached, expected];
