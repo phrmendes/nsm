@@ -86,12 +86,17 @@ export def has-unsaved-changes [name: string]: nothing -> bool {
     let expression = 'len(filter(getbufinfo({"buflisted": 1}), {_, b -> b.changed}))'
     let socket = (get-session $name).socket
     let result = remote-expr $socket $expression
+    let count = $result.stdout | str trim
 
     if $result.exit_code != 0 {
         fail $'Cannot query the server of ($name): ($result.stderr | str trim)'
     }
 
-    ($result.stdout | str trim) != '0'
+    if $count !~ '^[0-9]+$' {
+        fail $'Cannot query the server of ($name): it answered "($count)".'
+    }
+
+    $count != '0'
 }
 
 # Return the names of the live sessions that have unsaved changes.
