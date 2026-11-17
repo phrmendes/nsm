@@ -7,11 +7,13 @@
 --- *nsm-commands*
 ---
 --- - `:Nsm`: pick a session and switch to it.
+--- - `:Nsm last`: switch to the previous session.
 --- - `:Nsm new`: start a session for a directory.
 --- - `:Nsm kill`: stop a chosen session.
 ---
---- The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-kill)`, and
---- `<Plug>(nsm-new)`. The command `:detach` keeps the server running.
+--- The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-last)`,
+--- `<Plug>(nsm-kill)`, and `<Plug>(nsm-new)`. The command `:detach` keeps the
+--- server running.
 ---
 --- The picker opens from the rows of its previous call and refreshes them in
 --- the background. The first call, and the first call after a session starts or
@@ -29,21 +31,46 @@
 --- - `scope`: only list rows under this directory. The variable `NSM_SCOPE`
 ---   does the same.
 ---
+--- Statusline ~
+--- *nsm-statusline*
+---
+--- `require("nsm").current()` returns the name of the session, or nil outside
+--- a session. Show it in the statusline:
+---
+--- >lua
+---   vim.o.statusline = "%f %=%{v:lua.require('nsm').current()}"
+--- <
+---
 --- Terminal commands ~
 --- *nsm-terminal*
 ---
 --- - `nsm attach [name-or-directory]`: create or open a session, or pick one.
 --- - `nsm switch`: pick another session.
---- - `nsm last`: return to the previous session.
+--- - `nsm last`: return to the previous session. Use `--print` to print its
+---   socket and not open it.
 --- - `nsm new <name> [path]`: create a named session.
 --- - `nsm start <name-or-directory>`: start a session and print its socket.
---- - `nsm list`: print the sessions and their status.
+--- - `nsm list`: print the sessions and their status. Use `--json` for scripts.
 --- - `nsm pick`: print the picker rows as JSON.
 --- - `nsm kill [name]`: stop a session, or every session with `--all`.
+--- - `nsm names`: print the session names, one per line.
+--- - `nsm completions <shell>`: print the completion script of `bash`, `zsh`, or
+---   `nu`. See |nsm-completion|.
+--- - `nsm --version`: print the version.
 --- - `nsm a`, `nsm s`, `nsm l`, `nsm n`, `nsm ls`, `nsm k`: short forms.
 ---
 --- Pass `--scope <path>` to `attach`, `switch`, or `kill` to limit the picker
 --- to one directory.
+---
+--- Shell completion ~
+--- *nsm-completion*
+---
+--- The scripts complete the commands, the session names, and directories.
+---
+--- - bash: add `eval "$(nsm completions bash)"` to `~/.bashrc`.
+--- - zsh: add `eval "$(nsm completions zsh)"` to `~/.zshrc`, after `compinit`.
+--- - Nushell: run `nsm completions nu | save --force ~/.config/nushell/nsm.nu`,
+---   then add `source nsm.nu` to your config.
 ---
 --- Session status ~
 --- *nsm-status*
@@ -212,19 +239,19 @@ function nsm.connect(address)
   if not ok then cli.notify_error(err) end
 end
 
---- Start a session and attach the current UI to its socket.
----
----@param target string
+---@param command string[]
 ---@private
-local function start_and_connect(target)
-  cli.run({ "nsm", "start", target }, function(socket)
+local function run_and_connect(command)
+  cli.run(command, function(socket)
     clear_cache()
     if socket and socket ~= "" then nsm.connect(socket) end
   end)
 end
 
---- Forget the cached rows, then show the output of `nsm kill` when it has any.
----
+---@param target string
+---@private
+local function start_and_connect(target) run_and_connect({ "nsm", "start", target }) end
+
 ---@param stdout string
 ---@private
 local function notify_output(stdout)
@@ -272,8 +299,23 @@ function nsm.new()
   end)
 end
 
+--- Switch the current UI to the session that you opened before the current one.
+---
+function nsm.last() run_and_connect({ "nsm", "last", "--print" }) end
+
+--- Return the name of the session that runs this Neovim, or nil.
+---
+--- Use it in a statusline. The name comes from `NSM_SESSION`, which `nsm` sets
+--- when it starts a server.
+---
+---@return string|nil
+function nsm.current()
+  local name = vim.env.NSM_SESSION
+  return name ~= "" and name or nil
+end
+
 -- Each subcommand is also a function of the plugin.
-local subcommands = { "kill", "new" } ---@type string[]
+local subcommands = { "kill", "last", "new" } ---@type string[]
 
 --- Run a `:Nsm` subcommand by name, or switch when the name is empty.
 ---

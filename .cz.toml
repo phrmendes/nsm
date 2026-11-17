@@ -1,7 +1,7 @@
 [tool.commitizen]
 name = "cz_conventional_commits"
 version = "1.0.1"
-version_files = [".cz.toml:^version"]
+version_files = [".cz.toml:^version", "cli/version.nu:^export const VERSION"]
 tag_format = "v$version"
 update_changelog_on_bump = true
 changelog_file = "CHANGELOG.md"

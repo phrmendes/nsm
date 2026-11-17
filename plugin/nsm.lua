@@ -1,5 +1,6 @@
 local mappings = {
   { name = "switch", desc = "Switch session" },
+  { name = "last", desc = "Switch to the previous session" },
   { name = "kill", desc = "Stop session" },
   { name = "new", desc = "Start session for a directory" },
 }

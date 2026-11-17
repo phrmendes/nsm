@@ -1,6 +1,7 @@
+use completions.nu [get-completions]
 use lib.nu [EXIT_UNSAVED fail report-error warn]
 use picker.nu [list-candidates pick-candidate]
-use render.nu [format-sessions]
+use render.nu [format-sessions format-sessions-json]
 use server.nu [
     connect-session
     get-dirty-sessions
@@ -16,14 +17,15 @@ use store.nu [
     find-session
     get-previous-session-name
     get-session
+    list-session-names
     list-sessions
     save-session
     touch-session
 ]
+use version.nu [VERSION]
 
 $env.config = ($env.config | upsert error_style 'short')
 
-# Run a command body against the store and report a failure.
 def run-command [body: closure]: nothing -> nothing {
     report-error {
         create-store
@@ -31,7 +33,6 @@ def run-command [body: closure]: nothing -> nothing {
     }
 }
 
-# Stop every session, refusing sessions that have unsaved changes unless forced.
 def kill-all [force: bool]: nothing -> nothing {
     let sessions = list-sessions
 
@@ -53,7 +54,6 @@ def kill-all [force: bool]: nothing -> nothing {
     }
 }
 
-# Stop one session, refusing it when it has unsaved changes unless forced.
 def kill-one [target: string, force: bool]: nothing -> nothing {
     let session = get-session $target
 
@@ -64,7 +64,6 @@ def kill-one [target: string, force: bool]: nothing -> nothing {
     stop-session $target --force=$force
 }
 
-# Return the description of a subcommand.
 def get-summary [name: string]: nothing -> string {
     let command = scope commands | where name == $name | get --optional 0
 
@@ -94,7 +93,9 @@ def "main switch" [
 }
 
 # Return to the session that you opened before the current one.
-def "main last" []: nothing -> nothing {
+def "main last" [
+    --print # Print the socket of the session and do not open it
+]: nothing -> nothing {
     run-command {
         let previous = get-previous-session-name
 
@@ -102,7 +103,15 @@ def "main last" []: nothing -> nothing {
             fail 'There is no previous session.'
         }
 
-        connect-session $previous
+        if not $print {
+            connect-session $previous
+            return
+        }
+
+        let session = start-session $previous
+
+        touch-session $session.name
+        print $session.socket
     }
 }
 
@@ -147,10 +156,17 @@ def "main new" [
 #
 # The table shows the name, the status, the path, and the time of the last attach.
 # The status is `active` or `inactive`.
-def "main list" []: nothing -> nothing {
+def "main list" [
+    --json # Print the sessions as JSON
+]: nothing -> nothing {
     run-command {
         let sessions = list-sessions
         | par-each --keep-order {|session| $session | insert state (get-state $session.socket) }
+
+        if $json {
+            print (format-sessions-json $sessions)
+            return
+        }
 
         print (format-sessions $sessions)
     }
@@ -208,8 +224,35 @@ def "main kill" [
     }
 }
 
-# Print the subcommands of nsm.
-def main []: nothing -> nothing {
+# Print the session names, one per line.
+def "main names" []: nothing -> nothing {
+    run-command {
+        for name in (list-session-names) {
+            print $name
+        }
+    }
+}
+
+# Print the script that completes nsm in a shell.
+#
+# The shell is `bash`, `zsh`, or `nu`.
+def "main completions" [
+    shell: string # The shell to complete for
+]: nothing -> nothing {
+    report-error {
+        print (get-completions $shell)
+    }
+}
+
+# Print the subcommands of nsm, or the version with `--version`.
+def main [
+    --version (-v) # Print the version
+]: nothing -> nothing {
+    if $version {
+        print $'nsm ($VERSION)'
+        return
+    }
+
     let names = [
         'main attach'
         'main switch'
@@ -219,6 +262,8 @@ def main []: nothing -> nothing {
         'main pick'
         'main start'
         'main kill'
+        'main names'
+        'main completions'
     ]
 
     $names

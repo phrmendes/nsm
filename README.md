@@ -101,16 +101,19 @@ Omit `projects` to disable repository discovery. `restore.file` runs project Vim
 | Command            | Description                     |
 | ------------------ | ------------------------------- |
 | `:Nsm`             | Pick a session and switch to it |
+| `:Nsm last`        | Switch to the previous session  |
 | `:Nsm new`         | Start a session for a directory |
 | `:Nsm kill`        | Stop a chosen session           |
 | `:checkhealth nsm` | Verify installation             |
 
-The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-kill)` and `<Plug>(nsm-new)`. `setup({ keymap = "<leader>s" })` maps a key to `<Plug>(nsm-switch)`, and `keymap = false` removes it.
+The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-last)`, `<Plug>(nsm-kill)` and `<Plug>(nsm-new)`. `setup({ keymap = "<leader>s" })` maps a key to `<Plug>(nsm-switch)`, and `keymap = false` removes it.
 
 From Lua:
 
 ```lua
 require("nsm").switch()         -- pick a session and switch to it
+require("nsm").last()           -- switch to the previous session
+require("nsm").current()        -- the name of this session, or nil
 require("nsm").new()            -- start a session for a directory
 require("nsm").kill()           -- pick a session and stop it
 require("nsm").connect(address) -- attach to the server at address
@@ -128,6 +131,29 @@ From the terminal:
 | `nsm list`                       | Print sessions and their status               |
 | `nsm pick`                       | Print the picker rows as JSON                 |
 | `nsm kill [name]`                | Stop a session, or every session with `--all` |
+| `nsm names`                      | Print the session names, one per line         |
+| `nsm completions <shell>`        | Print the completion script of a shell        |
+| `nsm --version`                  | Print the version                             |
+
+`nsm list --json` prints the sessions as JSON for scripts. `nsm last --print` prints the socket of the previous session and does not open it.
+
+### Statusline
+
+`require("nsm").current()` returns the session name, so a statusline can show it:
+
+```lua
+vim.o.statusline = "%f %=%{v:lua.require('nsm').current()}"
+```
+
+### Shell completion
+
+The scripts complete the commands, the session names, and directories.
+
+```bash
+eval "$(nsm completions bash)"  # bash: add it to ~/.bashrc
+eval "$(nsm completions zsh)"   # zsh: add it to ~/.zshrc, after compinit
+nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add `source nsm.nu` to your config
+```
 
 ## Requirements
 

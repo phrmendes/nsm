@@ -420,6 +420,53 @@ T["kill"]["offers no force stop for another failure"] = function()
   eq(result.notifications, { "[E] The session (work) has unsaved changes." })
 end
 
+T["last"] = test.new_set()
+
+T["last"]["connects to the socket of the previous session"] = function()
+  local result = child.lua([[
+    H.system(function() return { code = 0, stdout = "/state/nsm/old.sock\n", stderr = "" } end)
+
+    H.load().last()
+
+    return H.flush().calls
+  ]])
+
+  eq(result, { { "nsm", "last", "--print" } })
+  eq(child.lua_get("H.connects"), { "/state/nsm/old.sock" })
+end
+
+T["last"]["reports a failure and does not connect"] = function()
+  child.lua([[
+    H.system(function() return { code = 1, stdout = "", stderr = "[E] There is no previous session.\n" } end)
+
+    H.load().last()
+    H.flush()
+  ]])
+
+  eq(child.lua_get("H.connects"), {})
+  eq(child.lua_get("H.texts()"), { "[E] There is no previous session." })
+end
+
+T["current"] = test.new_set()
+
+T["current"]["returns the session name, or nil outside a session"] = function()
+  local result = child.lua([[
+    local nsm = H.load()
+    local cases = {}
+
+    vim.env.NSM_SESSION = "work"
+    cases.set = nsm.current()
+    vim.env.NSM_SESSION = ""
+    cases.empty = nsm.current() == nil
+    vim.env.NSM_SESSION = nil
+    cases.unset = nsm.current() == nil
+
+    return cases
+  ]])
+
+  eq(result, { set = "work", empty = true, unset = true })
+end
+
 T["new"] = test.new_set()
 
 T["new"]["starts and connects to the chosen directory"] = function()
@@ -496,21 +543,23 @@ T["commands"]["register the user command and the plug mappings"] = function()
     local calls = {}
     local nsm = require("nsm")
     nsm.switch = function() table.insert(calls, "switch") end
+    nsm.last = function() table.insert(calls, "last") end
     nsm.kill = function() table.insert(calls, "kill") end
     nsm.new = function() table.insert(calls, "new") end
 
     vim.cmd({ cmd = "Nsm" })
+    vim.cmd({ cmd = "Nsm", args = { "last" } })
     vim.cmd({ cmd = "Nsm", args = { "kill" } })
     vim.cmd({ cmd = "Nsm", args = { "new" } })
-    for _, name in ipairs({ "switch", "kill", "new" }) do
+    for _, name in ipairs({ "switch", "last", "kill", "new" }) do
       vim.fn.maparg("<Plug>(nsm-" .. name .. ")", "n", false, true).callback()
     end
 
     return { calls = calls, complete = nsm.complete(), desc = vim.fn.maparg("<Plug>(nsm-switch)", "n", false, true).desc }
   ]])
 
-  eq(result.calls, { "switch", "kill", "new", "switch", "kill", "new" })
-  eq(result.complete, { "kill", "new" })
+  eq(result.calls, { "switch", "last", "kill", "new", "switch", "last", "kill", "new" })
+  eq(result.complete, { "kill", "last", "new" })
   eq(result.desc, "Switch session")
 end
 
