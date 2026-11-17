@@ -150,7 +150,9 @@ devenv test              # run the CLI and plugin tests
 devenv tasks run doc:run # regenerate doc/nsm.txt
 ```
 
-Commits follow [Conventional Commits](https://www.conventionalcommits.org). Each push to `main` bumps the version from them, and the workflow publishes the AppImage and `install.sh` for the new tag.
+Commits follow [Conventional Commits](https://www.conventionalcommits.org). Each push to `main` bumps the version from them, and the workflow publishes the AppImage and `install.sh` for the new tag. A manual run of the workflow republishes a release whose tag already exists.
+
+`nix flake check` runs the tests, the lint, the format check, and builds the AppImage. The workflow runs it on every push and pull request.
 
 ## License
 
