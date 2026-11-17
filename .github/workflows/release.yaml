@@ -27,6 +27,9 @@ jobs:
       - name: Run the hooks and the tests
         run: devenv test
 
+      - name: Allow unprivileged user namespaces
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
       - name: Build and smoke test the AppImage
         run: |
           nix build .#nsm-appimage -o result
@@ -60,6 +63,10 @@ jobs:
 
       - uses: cachix/install-nix-action@v31
         if: steps.tag.outputs.name != ''
+
+      - name: Allow unprivileged user namespaces
+        if: steps.tag.outputs.name != ''
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
       - name: Build the AppImage
         id: build
