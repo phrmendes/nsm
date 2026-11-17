@@ -1,3 +1,9 @@
+## v1.1.1 (2026-11-17)
+
+### Fixes
+
+- run nsm in servers that the AppImage starts
+
 ## v1.1.0 (2026-11-17)
 
 ### Features
