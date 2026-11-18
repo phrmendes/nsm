@@ -22,9 +22,9 @@ The plugin also sets `<Plug>(nsm-switch)`, `<Plug>(nsm-last)`,
 `<Plug>(nsm-kill)`, and `<Plug>(nsm-new)`. The command `:detach` keeps the
 server running.
 
-The picker opens from the rows of its previous call and refreshes them in
-the background. The first call, and the first call after a session starts or
-stops, wait for `nsm pick`.
+The pickers use `vim.ui.select`, so the picker plugin that you installed
+shows the rows. The list opens after `nsm pick` ends. A start that takes more
+than 100 ms shows `nsm: starting <session>…`.
 
 Setup ~
 *nsm-setup*
@@ -82,9 +82,9 @@ The scripts complete the commands, the session names, and directories.
 Session status ~
 *nsm-status*
 
-- `active`: the server runs. It is busy when it is slow to answer, for
-  example while Neovim runs a long task.
-- `inactive`: the server is stopped. `nsm attach` starts it again.
+- `active`: the server listens on its socket. A server that is busy with a
+  long task is still active.
+- `inactive`: the server does not run. `nsm attach` starts it again.
 
 `nsm kill` refuses a session with unsaved buffers, and a server that does
 not answer. Both refusals use exit code 3. Pass `--force` to stop the session
@@ -98,7 +98,7 @@ Create `~/.config/.nsm.nuon`. Every key is optional.
 >
   {
     projects: ["~/Projects", "/mnt/external/projects"]
-    icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
+    icons: { running: "🟢", stored: "⚫", directory: "📁" }
     restore: { file: "Session.vim" }
   }
 <
@@ -121,9 +121,8 @@ Picker rows ~
 
 The values of `source` are:
 
-- `running`: a session whose server answers.
-- `busy`: a session whose server is slow to answer.
-- `stored`: a session whose server is stopped.
+- `running`: a session whose server runs.
+- `stored`: a session whose server does not run.
 - `directory`: a git repository below a project root.
 - `zoxide`: a recent directory that zoxide knows.
 
@@ -168,7 +167,7 @@ Parameters ~
 ------------------------------------------------------------------------------
                                                                   *nsm.switch()*
                                  `nsm.switch`()
-Pick a session, start it when it is stopped, and attach the current UI to it
+Pick a session, start its server when it does not run, and attach the current UI to it
 with `:connect`.
 
 ------------------------------------------------------------------------------
@@ -210,9 +209,11 @@ Parameters ~
 
 ------------------------------------------------------------------------------
                                                                 *nsm.complete()*
-                                `nsm.complete`()
-Return the subcommands of `:Nsm`, for the command completion.
+                           `nsm.complete`({arglead})
+Return the subcommands of `:Nsm` that start with what you typed.
 
+Parameters ~
+{arglead} `(string)`
 Return ~
 `(string[])`
 
@@ -235,8 +236,8 @@ Health check for nsm.
 
 Run it with `:checkhealth nsm`. It checks that these are available:
 
-- `nsm` and Neovim 0.12 `:connect`. A missing one is an error.
-- `fzf` and `zoxide`. A missing one is a warning.
+- `nsm`, `bash`, and Neovim 0.12 `:connect`. A missing one is an error.
+- `fzf`, `git`, and `zoxide`. A missing one is a warning.
 
 
  vim:tw=78:ts=8:noet:ft=help:norl:

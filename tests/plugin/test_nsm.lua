@@ -119,89 +119,6 @@ T["switch"]["returns before the picker rows arrive"] = function()
   eq(result.connects, { "/state/nsm/work.sock" })
 end
 
-T["switch"]["opens from the cached rows and refreshes them"] = function()
-  local result = child.lua([[
-    local picks = 0
-    H.system(function()
-      picks = picks + 1
-      if picks == 1 then return { code = 0, stdout = H.rows.session, stderr = "" } end
-      return { code = 0, stdout = H.rows.directory, stderr = "", defer = true }
-    end)
-    H.select(false, false, false)
-    local nsm = H.load()
-
-    nsm.switch()
-    H.flush()
-    local first = H.items[1].label
-
-    H.items = nil
-    nsm.switch()
-    local second = H.items and H.items[1].label
-    H.pending()
-    H.flush()
-
-    H.items = nil
-    nsm.switch()
-
-    return { first = first, second = second, third = H.items and H.items[1].label, picks = picks }
-  ]])
-
-  eq(result, { first = "🟢 work  ~/work", second = "🟢 work  ~/work", third = "📁 ~/project", picks = 3 })
-end
-
-T["switch"]["waits for fresh rows after a session starts"] = function()
-  local shown = child.lua([[
-    local picks = 0
-    H.system(function(command)
-      if command[2] == "pick" then
-        picks = picks + 1
-        return { code = 0, stdout = H.rows.session, stderr = "", defer = picks > 1 }
-      end
-      return { code = 0, stdout = "/state/nsm/work.sock\n", stderr = "" }
-    end)
-    H.select(1, false)
-    local nsm = H.load()
-
-    nsm.switch()
-    H.flush()
-
-    H.items = nil
-    nsm.switch()
-
-    return H.items ~= nil
-  ]])
-
-  eq(shown, false)
-end
-
-T["switch"]["waits for fresh rows after a session stops"] = function()
-  local shown = child.lua([[
-    local picks = 0
-    H.system(function(command)
-      if command[2] == "pick" and command[3] == nil then
-        picks = picks + 1
-        return { code = 0, stdout = H.rows.session, stderr = "", defer = picks > 1 }
-      end
-      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
-      return { code = 0, stdout = "Stopped work.", stderr = "" }
-    end)
-    H.select(false, 1, false)
-    local nsm = H.load()
-
-    nsm.switch()
-    H.flush()
-    nsm.kill()
-    H.flush()
-
-    H.items = nil
-    nsm.switch()
-
-    return H.items ~= nil
-  ]])
-
-  eq(shown, false)
-end
-
 T["switch"]["starts a directory that has no session yet"] = function()
   local calls = child.lua([[
     H.system(function(command)
@@ -339,6 +256,23 @@ T["kill"]["stops the chosen session"] = function()
   eq(result.notifications, { "Stopped work." })
 end
 
+T["kill"]["shows no notification for an empty output"] = function()
+  local notifications = child.lua([[
+    H.system(function(command)
+      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
+      return { code = 0, stdout = "", stderr = "" }
+    end)
+    H.select(1)
+
+    H.load().kill()
+    H.flush()
+
+    return H.notifications
+  ]])
+
+  eq(notifications, {})
+end
+
 T["kill"]["does nothing on cancel"] = function()
   local calls = child.lua([[
     H.system(function()
@@ -418,6 +352,33 @@ T["kill"]["offers no force stop for another failure"] = function()
     { "nsm", "kill", "work" },
   })
   eq(result.notifications, { "[E] The session (work) has unsaved changes." })
+end
+
+T["starting notice"] = test.new_set()
+
+T["starting notice"]["shows only when nsm start is slow"] = function()
+  local result = child.lua([[
+    local nsm = H.load()
+
+    H.system(function() return { code = 0, stdout = "/state/nsm/fast.sock\n", stderr = "" } end)
+    vim.ui.input = function(_, on_confirm) on_confirm("/tmp") end
+    nsm.new()
+    vim.wait(150)
+    local fast = vim.deepcopy(H.texts())
+
+    H.system(function() return { code = 0, stdout = "/state/nsm/slow.sock\n", stderr = "", defer = true } end)
+    nsm.new()
+    vim.wait(150)
+    local slow = vim.deepcopy(H.texts())
+    H.pending()
+    H.flush()
+
+    return { fast = fast, slow = slow, connects = H.connects }
+  ]])
+
+  eq(result.fast, {})
+  eq(result.slow, { "nsm: starting /tmp…" })
+  eq(result.connects, { "/state/nsm/fast.sock", "/state/nsm/slow.sock" })
 end
 
 T["last"] = test.new_set()
@@ -555,11 +516,19 @@ T["commands"]["register the user command and the plug mappings"] = function()
       vim.fn.maparg("<Plug>(nsm-" .. name .. ")", "n", false, true).callback()
     end
 
-    return { calls = calls, complete = nsm.complete(), desc = vim.fn.maparg("<Plug>(nsm-switch)", "n", false, true).desc }
+    return {
+      calls = calls,
+      complete = nsm.complete(""),
+      filtered = nsm.complete("k"),
+      none = nsm.complete("x"),
+      desc = vim.fn.maparg("<Plug>(nsm-switch)", "n", false, true).desc,
+    }
   ]])
 
   eq(result.calls, { "switch", "last", "kill", "new", "switch", "last", "kill", "new" })
   eq(result.complete, { "kill", "last", "new" })
+  eq(result.filtered, { "kill" })
+  eq(result.none, {})
   eq(result.desc, "Switch session")
 end
 
@@ -667,7 +636,7 @@ T["health"]["reports every tool when they are installed"] = function()
   local reports = child.lua([[
     local dir = vim.fn.tempname()
     vim.fn.mkdir(dir, "p")
-    for _, name in ipairs({ "nsm", "fzf", "zoxide" }) do
+    for _, name in ipairs({ "nsm", "bash", "fzf", "git", "zoxide" }) do
       local path = dir .. "/" .. name
       vim.fn.writefile({ "#!/usr/bin/env bash", "exit 0" }, path)
       vim.uv.fs_chmod(path, 493)
@@ -684,9 +653,8 @@ T["health"]["reports every tool when they are installed"] = function()
   eq(reports[2][1], "ok")
   assert(reports[2][2]:find("nsm:") == 1)
   eq(reports[3], { "ok", "Neovim 0.12 :connect: available" })
-  eq(reports[4][1], "ok")
-  eq(reports[5][1], "ok")
-  eq(#reports, 5)
+  eq(vim.tbl_map(function(report) return report[1] end, vim.list_slice(reports, 4)), { "ok", "ok", "ok", "ok" })
+  eq(#reports, 7)
 end
 
 T["health"]["reports missing tools with hints"] = function()
@@ -703,17 +671,31 @@ T["health"]["reports missing tools with hints"] = function()
   eq(reports[2][1], "error")
   assert(reports[2][2]:find("nsm is not available") == 1)
   eq(reports[3][1], "ok")
-  eq(reports[4], { "warn", "fzf is not available" })
-  eq(reports[5], { "warn", "zoxide is not available" })
+  eq(reports[4], { "error", "bash is not available" })
+  eq(reports[5], { "warn", "fzf is not available" })
+  eq(reports[6], { "warn", "git is not available" })
+  eq(reports[7], { "warn", "zoxide is not available" })
 end
 
 T["setup"] = test.new_set()
 
-T["setup"]["custom key replaces the default mapping"] = function()
-  child.lua([[ require("nsm").setup({ keymap = "<leader>s" }) ]])
+T["setup"]["a new key replaces the previous key"] = function()
+  child.lua([[
+    require("nsm").setup({ keymap = "<leader>w" })
+    require("nsm").setup({ keymap = "<leader>s" })
+  ]])
 
   eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
   eq(child.lua_get("vim.fn.maparg('<leader>s', 'n', false, true).rhs"), "<Plug>(nsm-switch)")
+end
+
+T["setup"]["keymap false removes the key"] = function()
+  child.lua([[
+    require("nsm").setup({ keymap = "<leader>w" })
+    require("nsm").setup({ keymap = false })
+  ]])
+
+  eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
 end
 
 return T

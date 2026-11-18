@@ -15,9 +15,9 @@
 --- `<Plug>(nsm-kill)`, and `<Plug>(nsm-new)`. The command `:detach` keeps the
 --- server running.
 ---
---- The picker opens from the rows of its previous call and refreshes them in
---- the background. The first call, and the first call after a session starts or
---- stops, wait for `nsm pick`.
+--- The pickers use `vim.ui.select`, so the picker plugin that you installed
+--- shows the rows. The list opens after `nsm pick` ends. A start that takes more
+--- than 100 ms shows `nsm: starting <session>…`.
 ---
 --- Setup ~
 --- *nsm-setup*
@@ -75,9 +75,9 @@
 --- Session status ~
 --- *nsm-status*
 ---
---- - `active`: the server runs. It is busy when it is slow to answer, for
----   example while Neovim runs a long task.
---- - `inactive`: the server is stopped. `nsm attach` starts it again.
+--- - `active`: the server listens on its socket. A server that is busy with a
+---   long task is still active.
+--- - `inactive`: the server does not run. `nsm attach` starts it again.
 ---
 --- `nsm kill` refuses a session with unsaved buffers, and a server that does
 --- not answer. Both refusals use exit code 3. Pass `--force` to stop the session
@@ -91,7 +91,7 @@
 --- >
 ---   {
 ---     projects: ["~/Projects", "/mnt/external/projects"]
----     icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
+---     icons: { running: "🟢", stored: "⚫", directory: "📁" }
 ---     restore: { file: "Session.vim" }
 ---   }
 --- <
@@ -114,9 +114,8 @@
 ---
 --- The values of `source` are:
 ---
---- - `running`: a session whose server answers.
---- - `busy`: a session whose server is slow to answer.
---- - `stored`: a session whose server is stopped.
+--- - `running`: a session whose server runs.
+--- - `stored`: a session whose server does not run.
 --- - `directory`: a git repository below a project root.
 --- - `zoxide`: a recent directory that zoxide knows.
 ---
@@ -152,12 +151,13 @@
 local nsm = {}
 local mapped
 local scope
-local cache = {} ---@type table<string, table[]>
-local generation = 0
 
-local cli = require("nsm.cli")
+-- Each subcommand is also a function of the plugin.
+local subcommands = { "kill", "last", "new" } ---@type string[]
 
-local UNSAVED = cli.UNSAVED
+local utils = require("nsm.utils")
+
+local UNSAVED = 3
 
 --- Return the name of the row, or its path when it has no session.
 ---
@@ -165,20 +165,12 @@ local UNSAVED = cli.UNSAVED
 ---@return string
 ---@private
 local function get_target(item)
-  if item.name and item.name ~= vim.NIL and item.name ~= "" then return item.name end
+  if item.name and item.name ~= "" then return item.name end
   return item.path
 end
 
 ---@class nsm.PickOptions
 ---@field sessions boolean|nil Only list sessions.
-
---- Forget the cached picker rows, because a session started or stopped.
----
----@private
-local function clear_cache()
-  cache = {}
-  generation = generation + 1
-end
 
 --- Ask `vim.ui.select` for a row.
 ---
@@ -189,8 +181,7 @@ end
 local function select_row(items, on_choice, opts)
   if #items == 0 then
     local message = opts.sessions and "There are no sessions." or "There is nothing to pick. Start a session with `nsm new <name>`."
-    vim.notify(message, vim.log.levels.WARN)
-    return
+    return utils.notify(message, vim.log.levels.WARN)
   end
 
   vim.ui.select(items, {
@@ -201,11 +192,6 @@ local function select_row(items, on_choice, opts)
   end)
 end
 
---- Ask for a row with `vim.ui.select`.
----
---- Open the picker at once from the rows of the previous call, and refresh
---- the rows in the background. Wait for `nsm pick` when there are no rows yet.
----
 ---@param opts nsm.PickOptions
 ---@param on_choice fun(item: table)
 ---@private
@@ -214,53 +200,50 @@ local function pick(opts, on_choice)
   if opts.sessions then table.insert(command, "--sessions") end
   if scope and scope ~= "" then vim.list_extend(command, { "--scope", scope }) end
 
-  local key = table.concat(command, " ")
-  local cached = cache[key]
-  local started = generation
-
-  if cached then select_row(cached, on_choice, opts) end
-
-  cli.run(command, function(output)
-    local ok, items = pcall(vim.json.decode, output)
+  utils.run(command, function(output)
+    local ok, items = pcall(vim.json.decode, output, { luanil = { object = true, array = true } })
     if not ok or type(items) ~= "table" then
-      vim.notify("nsm returned invalid picker data", vim.log.levels.ERROR)
+      utils.notify("nsm returned invalid picker data", vim.log.levels.ERROR)
       return
     end
 
-    if started == generation and #items > 0 then cache[key] = items end
-    if not cached then select_row(items, on_choice, opts) end
+    select_row(items, on_choice, opts)
   end)
 end
+
+--- Show `nsm: starting <label>…` only after 100 ms, so a fast switch shows nothing.
+---
+---@param command string[]
+---@param label string
+---@private
+local function run_and_connect(command, label)
+  local done = false
+  vim.defer_fn(function()
+    if not done then utils.notify("nsm: starting " .. label .. "…") end
+  end, 100)
+
+  utils.run(command, function(socket)
+    done = true
+    if socket and socket ~= "" then nsm.connect(socket) end
+  end, function(result)
+    done = true
+    utils.notify(utils.get_message(command, result), vim.log.levels.ERROR)
+  end)
+end
+
+---@param target string
+---@private
+local function start_and_connect(target) run_and_connect({ "nsm", "start", target }, target) end
 
 --- Attach the current UI to the Neovim server at `address`.
 ---
 ---@param address string
 function nsm.connect(address)
   local ok, err = pcall(function() vim.cmd({ cmd = "connect", args = { address } }) end)
-  if not ok then cli.notify_error(err) end
+  if not ok then utils.notify(err, vim.log.levels.ERROR) end
 end
 
----@param command string[]
----@private
-local function run_and_connect(command)
-  cli.run(command, function(socket)
-    clear_cache()
-    if socket and socket ~= "" then nsm.connect(socket) end
-  end)
-end
-
----@param target string
----@private
-local function start_and_connect(target) run_and_connect({ "nsm", "start", target }) end
-
----@param stdout string
----@private
-local function notify_output(stdout)
-  clear_cache()
-  if stdout ~= "" then vim.notify(stdout) end
-end
-
---- Pick a session, start it when it is stopped, and attach the current UI to it
+--- Pick a session, start its server when it does not run, and attach the current UI to it
 --- with `:connect`.
 ---
 function nsm.switch()
@@ -277,14 +260,14 @@ function nsm.kill()
     local target = get_target(item)
     local command = { "nsm", "kill", target }
 
-    cli.run(command, notify_output, function(result)
+    utils.run(command, utils.notify, function(result)
       if result.code ~= UNSAVED then
-        cli.notify_error(cli.get_message(command, result))
+        utils.notify(utils.get_message(command, result), vim.log.levels.ERROR)
         return
       end
 
-      vim.ui.select({ "Force stop", "Cancel" }, { prompt = cli.get_message(command, result) }, function(choice)
-        if choice == "Force stop" then cli.run({ "nsm", "kill", "--force", target }, notify_output) end
+      vim.ui.select({ "Force stop", "Cancel" }, { prompt = utils.get_message(command, result) }, function(choice)
+        if choice == "Force stop" then utils.run({ "nsm", "kill", "--force", target }, utils.notify) end
       end)
     end)
   end)
@@ -296,13 +279,13 @@ function nsm.new()
   vim.ui.input({ prompt = "nsm directory> ", default = vim.fn.getcwd(), completion = "dir" }, function(input)
     if not input or input == "" then return end
 
-    start_and_connect(vim.fs.normalize(vim.fn.fnamemodify(input, ":p")))
+    start_and_connect(vim.fs.normalize(vim.fs.abspath(input)))
   end)
 end
 
 --- Switch the current UI to the session that you opened before the current one.
 ---
-function nsm.last() run_and_connect({ "nsm", "last", "--print" }) end
+function nsm.last() run_and_connect({ "nsm", "last", "--print" }, "the previous session") end
 
 --- Return the name of the session that runs this Neovim, or nil.
 ---
@@ -315,26 +298,26 @@ function nsm.current()
   return name ~= "" and name or nil
 end
 
--- Each subcommand is also a function of the plugin.
-local subcommands = { "kill", "last", "new" } ---@type string[]
-
 --- Run a `:Nsm` subcommand by name, or switch when the name is empty.
 ---
 ---@param name string
 function nsm.command(name)
   if name == "" then
     nsm.switch()
-  elseif vim.tbl_contains(subcommands, name) then
+  elseif vim.list_contains(subcommands, name) then
     nsm[name]()
   else
-    vim.notify("Unknown subcommand: " .. name, vim.log.levels.ERROR)
+    utils.notify("Unknown subcommand: " .. name, vim.log.levels.ERROR)
   end
 end
 
---- Return the subcommands of `:Nsm`, for the command completion.
+--- Return the subcommands of `:Nsm` that start with what you typed.
 ---
+---@param arglead string
 ---@return string[]
-function nsm.complete() return vim.deepcopy(subcommands) end
+function nsm.complete(arglead)
+  return vim.iter(subcommands):filter(function(name) return vim.startswith(name, arglead) end):totable()
+end
 
 --- Set the key and the scope of the plugin.
 ---
@@ -354,8 +337,6 @@ function nsm.setup(opts)
     vim.keymap.del("n", mapped)
     mapped = nil
   end
-
-  if vim.fn.maparg("<leader>w", "n", false, true).rhs == "<Plug>(nsm-switch)" then vim.keymap.del("n", "<leader>w") end
 
   if keymap then
     vim.keymap.set("n", keymap, "<Plug>(nsm-switch)", { desc = "Switch session" })

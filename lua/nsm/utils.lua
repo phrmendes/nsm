@@ -1,14 +1,8 @@
---- Run the `nsm` command and report its failures.
----
----@tag nsm-cli
----@private
-
-local cli = {}
-
---- Exit code of `nsm kill` when it refuses a change because of unsaved buffers.
+--- Internal helpers of nsm: run the `nsm` command and report its results.
 ---
 ---@private
-cli.UNSAVED = 3
+
+local utils = {}
 
 ---@param text string|nil
 ---@return string
@@ -18,23 +12,24 @@ local function strip_ansi(text)
   return stripped
 end
 
----@param err any
+--- Show a message without ANSI colour codes, unless the message is empty.
+---
+---@param message any
+---@param level integer|nil
 ---@private
-function cli.notify_error(err) vim.notify(strip_ansi(tostring(err)), vim.log.levels.ERROR) end
+function utils.notify(message, level)
+  local text = strip_ansi(tostring(message))
+  if text ~= "" then vim.notify(text, level) end
+end
 
 ---@param command string[]
 ---@param result vim.SystemCompleted
 ---@return string
 ---@private
-function cli.get_message(command, result)
+function utils.get_message(command, result)
   local stderr = strip_ansi((result.stderr or ""):gsub("%s+$", ""))
   return stderr ~= "" and stderr or ("`" .. table.concat(command, " ") .. "` failed")
 end
-
----@param command string[]
----@param result vim.SystemCompleted
----@private
-local function fail(command, result) cli.notify_error(cli.get_message(command, result)) end
 
 --- Run a command and call `on_success` with its trimmed stdout.
 ---
@@ -45,8 +40,8 @@ local function fail(command, result) cli.notify_error(cli.get_message(command, r
 ---@param on_success fun(stdout: string)
 ---@param on_failure fun(result: vim.SystemCompleted)|nil
 ---@private
-function cli.run(command, on_success, on_failure)
-  local on_error = on_failure or function(result) fail(command, result) end
+function utils.run(command, on_success, on_failure)
+  local on_error = on_failure or function(result) utils.notify(utils.get_message(command, result), vim.log.levels.ERROR) end
 
   local on_exit = vim.schedule_wrap(function(result)
     if result.code ~= 0 then
@@ -58,7 +53,7 @@ function cli.run(command, on_success, on_failure)
   end)
 
   local ok, process = pcall(vim.system, command, { text = true }, on_exit)
-  if not ok then cli.notify_error(process) end
+  if not ok then utils.notify(process, vim.log.levels.ERROR) end
 end
 
-return cli
+return utils
