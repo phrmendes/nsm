@@ -1,3 +1,9 @@
+## v1.2.1 (2026-11-18)
+
+### Fixes
+
+- **cli**: stop waiting when the environment launcher fails
+
 ## v1.2.0 (2026-11-18)
 
 ### Features
