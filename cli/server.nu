@@ -11,19 +11,23 @@ const PLAIN_TIMEOUT = 5
 const ENVIRONMENT_INTERVAL = 200ms
 const HEARTBEAT = 5sec
 
-# Close every file above 2 before `nvim` runs, so the server does not hold the AppImage mount.
-const CLOSE_FDS = 'for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
+# Write the process id to the file in $1, then close every file above 2 before `nvim` runs, so the server does not hold the AppImage mount.
+const CLOSE_FDS = 'printf %s $$ > "$1"; shift; for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
 
-# Check whether a process starts the server of a session, also while its command line hides the socket.
-def is-starting [name: string, socket: path]: nothing -> bool {
-    if (find-server-pid $socket) != null {
-        return true
+# Return the file that holds the process id of the launcher of a server.
+def get-pid-file [socket: path]: nothing -> string {
+    $socket | str replace --regex '\.sock$' '.pid'
+}
+
+# Check whether the launcher of a server still runs, or a process listens on its socket path.
+def is-starting [socket: path]: nothing -> bool {
+    let launched = try {
+        is-running (open --raw (get-pid-file $socket) | str trim | into int)
+    } catch {
+        false
     }
 
-    glob '/proc/[0-9]*/environ'
-    | any {|file|
-        try { open --raw $file | split row (char --integer 0) | any {|entry| $entry == $'NSM_SESSION=($name)' } } catch { false }
-    }
+    $launched or ((find-server-pid $socket) != null)
 }
 
 # Return the log file that sits next to the socket of a server.
@@ -51,7 +55,7 @@ def wait-for-server [
     mut next_report = $HEARTBEAT
 
     for _ in 1..$attempts {
-        if (is-alive $session.socket) or not (is-starting $session.name $session.socket) {
+        if (is-alive $session.socket) or not (is-starting $session.socket) {
             return
         }
 
@@ -68,7 +72,10 @@ def wait-for-server [
 
 # Start a detached server for a session in its directory, and wait until it listens.
 def start-server [session: record<name: string, path: string, socket: string>]: nothing -> nothing {
+    let pid_file = get-pid-file $session.socket
+
     remove-path $session.socket
+    remove-path $pid_file
 
     try {
         cd $session.path
@@ -88,8 +95,12 @@ def start-server [session: record<name: string, path: string, socket: string>]: 
     }
 
     with-env {NSM_SESSION: $session.name} {
-        setsid --fork bash -c $CLOSE_FDS bash ...$environment nvim --headless --listen $session.socket ...$restore o+e> $log
+        setsid --fork bash -c $CLOSE_FDS bash $pid_file ...$environment nvim --headless --listen $session.socket ...$restore o+e> $log
     }
+
+    wait-until {
+        $pid_file | path exists
+    } | ignore
 
     let interval = if ($environment | is-empty) { $POLL_INTERVAL } else { $ENVIRONMENT_INTERVAL }
     let attempts = ($timeout_seconds * 1sec / $interval) | into int
@@ -103,7 +114,7 @@ def start-server [session: record<name: string, path: string, socket: string>]: 
 
     let failure = if (is-alive $session.socket) {
         null
-    } else if (is-starting $session.name $session.socket) {
+    } else if (is-starting $session.socket) {
         $'The server of ($session.name) did not start within ($timeout_seconds) s.'
     } else if ($environment | is-empty) {
         $'The server of ($session.name) did not start:(char nl)(read-log-tail $log)'
@@ -276,6 +287,7 @@ export def stop-session [name: string, --force]: nothing -> nothing {
 
     remove-path $session.socket
     remove-path (get-log-file $session.socket)
+    remove-path (get-pid-file $session.socket)
     delete-session $name
 
     print $'Stopped ($name).'

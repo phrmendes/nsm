@@ -157,6 +157,27 @@ def "test start-fails-at-once-when-the-environment-is-blocked" []: nothing -> no
     }
 }
 
+def "test start-fails-at-once-when-another-process-has-the-session-variable" []: nothing -> nothing {
+    in-root {|root|
+        let project = $root | path join project
+        let bin = make-shims $root
+        make-dir $project
+        make-tool-shim ($bin | path join direnv) direnv 'sleep 8 >/dev/null 2>&1 & echo "direnv: error .envrc failed" >&2; exit 1'
+        make-background-setsid-shim ($bin | path join setsid)
+        write-text ($project | path join .envrc) ''
+
+        with-shim-env $root $bin {
+            let started = date now
+            let result = nu --no-config-file cli/main.nu start $project | complete
+            let elapsed = (date now) - $started
+
+            assert equal $result.exit_code 1 'the start fails'
+            assert ($result.stderr | str contains 'direnv: error .envrc failed') $result.stderr
+            assert ($elapsed < 5sec) $'the failure took ($elapsed)'
+        }
+    }
+}
+
 def "test start-gives-up-after-the-configured-timeout" []: nothing -> nothing {
     in-root {|root|
         let project = $root | path join project
