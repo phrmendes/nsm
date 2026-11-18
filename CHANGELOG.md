@@ -1,3 +1,9 @@
+## v1.1.3 (2026-11-18)
+
+### Refactoring
+
+- **cli**: stream the picker sources with each --flatten
+
 ## v1.1.2 (2026-11-18)
 
 ### Fixes
