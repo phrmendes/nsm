@@ -9,6 +9,9 @@ on:
 permissions:
   contents: write
 
+env:
+  NU_VERSION: "0.116.1"
+
 defaults:
   run:
     shell: nu {0}
@@ -24,7 +27,7 @@ jobs:
       - name: Set up Nushell
         uses: hustcer/setup-nu@v3
         with:
-          version: '0.116.1'
+          version: ${{ env.NU_VERSION }}
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -54,7 +57,7 @@ jobs:
       - name: Set up Nushell
         uses: hustcer/setup-nu@v3
         with:
-          version: '0.116.1'
+          version: ${{ env.NU_VERSION }}
 
       - name: Bump the version and tag it
         uses: commitizen-tools/commitizen-action@0.27.1
@@ -63,9 +66,7 @@ jobs:
 
       - name: Read the new tag
         id: tag
-        run: |
-          let tag = git tag --points-at HEAD | lines | where {|line| $line =~ '^v[0-9]' } | get --optional 0 | default ''
-          $"name=($tag)(char nl)" | save --append $env.GITHUB_OUTPUT
+        run: nu .github/workflows/scripts/read-tag.nu
 
       - name: Install Nix
         uses: cachix/install-nix-action@v31
@@ -77,57 +78,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
-        run: |
-          let existing = (gh release view $env.TAG | complete)
-          if $existing.exit_code == 0 {
-            print 'The release already exists.'
-            exit 0
-          }
-
-          nix build '.#nsm-appimage'
-          ^cp -L result nsm-x86_64.AppImage
-          ^chmod +w nsm-x86_64.AppImage
-          ^sha256sum nsm-x86_64.AppImage | save --force nsm-x86_64.AppImage.sha256
-
-          let smoke = (with-env {APPIMAGE_EXTRACT_AND_RUN: '1'} { ^./nsm-x86_64.AppImage | complete })
-          if not ($smoke.stdout | str contains 'switch') {
-            error make { msg: 'The AppImage does not list switch.' }
-          }
-
-          $"publish=true(char nl)" | save --append $env.GITHUB_OUTPUT
+        run: nu .github/workflows/scripts/build.nu
 
       - name: Publish the release
         if: steps.tag.outputs.name != '' && steps.build.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ steps.tag.outputs.name }}
-        run: |
-          let version = ($env.TAG | str replace --regex '^v' '')
-          let line = $"VERSION=($version)"
-
-          open --raw scripts/install.sh
-          | str replace --regex '(?m)^VERSION=latest$' $line
-          | save --force install.sh
-
-          let stamped = (open --raw install.sh | lines | where {|text| $text == $line } | is-not-empty)
-          if not $stamped {
-            error make { msg: 'The installer does not carry the version.' }
-          }
-
-          let notes = (
-            open --raw CHANGELOG.md
-            | split row --regex '(?m)^## '
-            | where {|section| $section | str starts-with $"($env.TAG) " }
-            | get --optional 0
-            | default ''
-            | lines
-            | skip 1
-            | str join (char nl)
-            | str trim
-          )
-          if ($notes | is-empty) {
-            error make { msg: 'The changelog has no section for the tag.' }
-          }
-          $notes | save --force notes.md
-
-          gh release create $env.TAG --verify-tag --title $env.TAG --notes-file notes.md nsm-x86_64.AppImage nsm-x86_64.AppImage.sha256 install.sh
+        run: nu .github/workflows/scripts/publish.nu
