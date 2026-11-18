@@ -24,7 +24,8 @@ server running.
 
 The pickers use `vim.ui.select`, so the picker plugin that you installed
 shows the rows. The list opens after `nsm pick` ends. A start that takes more
-than 100 ms shows `nsm: starting <session>…`.
+than 100 ms shows the messages of `nsm start`, for example
+`Still loading the environment of <session>…` every 5 seconds.
 
 Setup ~
 *nsm-setup*

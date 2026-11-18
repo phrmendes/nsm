@@ -9,10 +9,16 @@ local prelude = [=[
   vim.notify = function(text, level) table.insert(H.notifications, { text = text, level = level }) end
 
   H.system = function(handler)
-    vim.system = function(command, _, on_exit)
+    vim.system = function(command, opts, on_exit)
       table.insert(H.calls, command)
       local result = handler(command)
       result.wait = function(self) return self end
+      if opts and opts.stderr then
+        for _, chunk in ipairs(result.chunks or { result.stderr or "" }) do
+          if chunk ~= "" then opts.stderr(nil, chunk) end
+        end
+        result.stderr = nil
+      end
       if result.defer then
         H.pending = function() on_exit(result) end
       elseif on_exit then
@@ -354,31 +360,71 @@ T["kill"]["offers no force stop for another failure"] = function()
   eq(result.notifications, { "[E] The session (work) has unsaved changes." })
 end
 
-T["starting notice"] = test.new_set()
+T["progress"] = test.new_set()
 
-T["starting notice"]["shows only when nsm start is slow"] = function()
+T["progress"]["shows the lines of a slow start after 100 ms"] = function()
   local result = child.lua([[
     local nsm = H.load()
-
-    H.system(function() return { code = 0, stdout = "/state/nsm/fast.sock\n", stderr = "" } end)
     vim.ui.input = function(_, on_confirm) on_confirm("/tmp") end
-    nsm.new()
-    vim.wait(150)
-    local fast = vim.deepcopy(H.texts())
 
-    H.system(function() return { code = 0, stdout = "/state/nsm/slow.sock\n", stderr = "", defer = true } end)
+    H.system(function()
+      return {
+        code = 0,
+        stdout = "/state/nsm/slow.sock\n",
+        chunks = { "Starting work…\n", "Loading the environment of work with direnv…\n" },
+        defer = true,
+      }
+    end)
     nsm.new()
+    vim.wait(30)
+    local early = vim.deepcopy(H.texts())
     vim.wait(150)
     local slow = vim.deepcopy(H.texts())
     H.pending()
     H.flush()
 
-    return { fast = fast, slow = slow, connects = H.connects }
+    return { early = early, slow = slow, connects = H.connects }
   ]])
 
-  eq(result.fast, {})
-  eq(result.slow, { "nsm: starting /tmp…" })
-  eq(result.connects, { "/state/nsm/fast.sock", "/state/nsm/slow.sock" })
+  eq(result.early, {})
+  eq(result.slow, { "Starting work…", "Loading the environment of work with direnv…" })
+  eq(result.connects, { "/state/nsm/slow.sock" })
+end
+
+T["progress"]["shows nothing for a fast start"] = function()
+  local result = child.lua([[
+    local nsm = H.load()
+    vim.ui.input = function(_, on_confirm) on_confirm("/tmp") end
+
+    H.system(function() return { code = 0, stdout = "/state/nsm/fast.sock\n", chunks = { "Starting work…\n" } } end)
+    nsm.new()
+    vim.wait(150)
+
+    return { texts = H.texts(), connects = H.connects }
+  ]])
+
+  eq(result.texts, {})
+  eq(result.connects, { "/state/nsm/fast.sock" })
+end
+
+T["progress"]["joins a line that arrives in two chunks"] = function()
+  local texts = child.lua([[
+    local nsm = H.load()
+    vim.ui.input = function(_, on_confirm) on_confirm("/tmp") end
+
+    H.system(function()
+      return { code = 0, stdout = "/state/nsm/slow.sock\n", chunks = { "Loading the envi", "ronment of work…\n" }, defer = true }
+    end)
+    nsm.new()
+    vim.wait(150)
+    local shown = vim.deepcopy(H.texts())
+    H.pending()
+    H.flush()
+
+    return shown
+  ]])
+
+  eq(texts, { "Loading the environment of work…" })
 end
 
 T["last"] = test.new_set()

@@ -96,7 +96,7 @@ Set your project roots in `~/.config/.nsm.nuon`:
 
 Omit `projects` to disable repository discovery. `restore.file` runs project Vimscript, so enable it only for trusted projects.
 
-A server starts inside the environment of its project. A `.envrc` loads through `direnv exec`. A `devenv.nix` without a `.envrc` loads through `devenv shell --`. If the environment does not load, `nsm start` fails with the message of the tool, for example to run `direnv allow`. Set `start.environment` to `false` to skip it, and `start.timeout` to change the wait in seconds for a cold environment. While it loads, `nsm start` reports every 5 seconds.
+A server starts inside the environment of its project. A `.envrc` loads through `direnv exec`. A `devenv.nix` without a `.envrc` loads through `devenv shell --`. If the environment does not load, `nsm start` fails with the message of the tool, for example to run `direnv allow`. Set `start.environment` to `false` to skip it, and `start.timeout` to change the wait in seconds for a cold environment. While it loads, `nsm start` reports every 5 seconds. The plugin shows these messages when a start takes more than 100 ms.
 
 ## Usage
 

@@ -17,7 +17,8 @@
 ---
 --- The pickers use `vim.ui.select`, so the picker plugin that you installed
 --- shows the rows. The list opens after `nsm pick` ends. A start that takes more
---- than 100 ms shows `nsm: starting <session>…`.
+--- than 100 ms shows the messages of `nsm start`, for example
+--- `Still loading the environment of <session>…` every 5 seconds.
 ---
 --- Setup ~
 --- *nsm-setup*
@@ -228,15 +229,21 @@ local function pick(opts, on_choice)
   end)
 end
 
---- Show `nsm: starting <label>…` only after 100 ms, so a fast switch shows nothing.
+--- Show the stderr lines of the command only after 100 ms, so a fast switch shows nothing.
 ---
 ---@param command string[]
----@param label string
 ---@private
-local function run_and_connect(command, label)
+local function run_and_connect(command)
   local done = false
+  local visible = false
+  local pending = {} ---@type string[]
+
   vim.defer_fn(function()
-    if not done then utils.notify("nsm: starting " .. label .. "…") end
+    if done then return end
+
+    visible = true
+    vim.iter(pending):each(function(line) utils.notify(line) end)
+    pending = {}
   end, 100)
 
   utils.run(command, function(socket)
@@ -245,12 +252,19 @@ local function run_and_connect(command, label)
   end, function(result)
     done = true
     utils.notify(utils.get_message(command, result), vim.log.levels.ERROR)
+  end, function(line)
+    if visible then
+      utils.notify(line)
+      return
+    end
+
+    table.insert(pending, line)
   end)
 end
 
 ---@param target string
 ---@private
-local function start_and_connect(target) run_and_connect({ "nsm", "start", target }, target) end
+local function start_and_connect(target) run_and_connect({ "nsm", "start", target }) end
 
 --- Attach the current UI to the Neovim server at `address`.
 ---
@@ -302,7 +316,7 @@ end
 
 --- Switch the current UI to the session that you opened before the current one.
 ---
-function nsm.last() run_and_connect({ "nsm", "last", "--print" }, "the previous session") end
+function nsm.last() run_and_connect({ "nsm", "last", "--print" }) end
 
 --- Return the name of the session that runs this Neovim, or nil.
 ---

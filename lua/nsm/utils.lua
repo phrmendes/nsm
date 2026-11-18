@@ -35,15 +35,38 @@ end
 ---
 --- The callback runs after `nsm` exits, so Neovim stays responsive. A failure
 --- calls `on_failure` with the result, or notifies when `on_failure` is missing.
+--- `on_stderr` gets each whole line of stderr while the command runs.
 ---
 ---@param command string[]
 ---@param on_success fun(stdout: string)
 ---@param on_failure fun(result: vim.SystemCompleted)|nil
+---@param on_stderr fun(line: string)|nil
 ---@private
-function utils.run(command, on_success, on_failure)
+function utils.run(command, on_success, on_failure, on_stderr)
   local on_error = on_failure or function(result) utils.notify(utils.get_message(command, result), vim.log.levels.ERROR) end
+  local options = { text = true }
+  local chunks = {}
+  local partial = ""
+
+  if on_stderr then
+    options.stderr = function(_, data)
+      if not data then return end
+
+      table.insert(chunks, data)
+      vim.schedule(function()
+        local lines = vim.split(partial .. data, "\n", { plain = true })
+        partial = table.remove(lines)
+        vim.iter(lines):each(function(line) on_stderr(line) end)
+      end)
+    end
+  end
 
   local on_exit = vim.schedule_wrap(function(result)
+    if on_stderr then
+      result.stderr = table.concat(chunks)
+      if partial ~= "" then on_stderr(partial) end
+    end
+
     if result.code ~= 0 then
       on_error(result)
       return
@@ -52,7 +75,7 @@ function utils.run(command, on_success, on_failure)
     on_success(vim.trim(result.stdout or ""))
   end)
 
-  local ok, process = pcall(vim.system, command, { text = true }, on_exit)
+  local ok, process = pcall(vim.system, command, options, on_exit)
   if not ok then utils.notify(process, vim.log.levels.ERROR) end
 end
 
