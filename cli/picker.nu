@@ -94,6 +94,7 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
             ($candidate.name | default '')
         ] | str join (char tab)
     }
+
     let result = list-candidates --exclude $exclude --sessions=$sessions --scope $scope
     | each $format
     | to text
@@ -101,9 +102,9 @@ export def pick-candidate [--exclude: string = '', --sessions, --scope: string =
         fzf --delimiter '\t' --with-nth '1' --preview $PREVIEW --layout reverse --height '50%' --prompt 'nsm> ' --exit-0 --print-query
     }
     | complete
+
     let output = $result.stdout | lines
 
-    # With an empty query every row matches, so exit code 1 means that there were no rows.
     if $result.exit_code == 1 and ($output | get --optional 0 | default '' | is-empty) {
         fail 'There is nothing to pick. Start a session with `nsm new <name>`.'
     }

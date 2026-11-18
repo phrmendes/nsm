@@ -283,20 +283,9 @@ def main [
     | print
 }
 
-# Pick another session and open it.
 alias "main s" = main switch
-
-# Return to the previous session.
 alias "main l" = main last
-
-# Create or attach to a session.
 alias "main a" = main attach
-
-# Create a named session.
 alias "main n" = main new
-
-# Print sessions as a table.
 alias "main ls" = main list
-
-# Stop a session.
 alias "main k" = main kill
