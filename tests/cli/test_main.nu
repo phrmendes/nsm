@@ -130,7 +130,6 @@ def "test main-last-print-needs-a-previous-session" []: nothing -> nothing {
     }
 }
 
-# Verify that --version prints the version of .cz.toml, so a missed bump fails.
 def "test main-version-follows-the-release-version" []: nothing -> nothing {
     let expected = $'nsm (open .cz.toml | get tool.commitizen.version)'
     let result = nu --no-config-file cli/main.nu --version | complete

@@ -2,10 +2,12 @@ use ../../cli/lib.nu [fail remove-path]
 use ../../cli/server.nu [is-alive wait-until]
 use ../../cli/store.nu [create-store]
 
+# Return the path of bash, or an `env` command that finds it.
 export def get-bash []: nothing -> string {
     which bash | get --optional 0.path | default '/usr/bin/env bash'
 }
 
+# Create a directory, or fail with the reason.
 export def make-dir [path: path]: nothing -> nothing {
     try {
         mkdir $path
@@ -14,7 +16,7 @@ export def make-dir [path: path]: nothing -> nothing {
     }
 }
 
-# Run the body in a temporary directory and remove the directory, also on failure.
+# Run a closure in a temporary directory, and remove the directory also on failure.
 export def in-root [body: closure]: nothing -> nothing {
     let root = mktemp --directory
 
@@ -29,7 +31,7 @@ export def in-root [body: closure]: nothing -> nothing {
     remove-path $root
 }
 
-# Run the body against an isolated, empty session store, and remove the store.
+# Run a closure against an empty session store in a temporary directory.
 export def in-store [body: closure]: nothing -> nothing {
     in-root {|root|
         with-env {XDG_STATE_HOME: $root, HOME: $root} {
@@ -39,14 +41,16 @@ export def in-store [body: closure]: nothing -> nothing {
     }
 }
 
-# Create a bash shim that logs its arguments and creates a file after `--listen`.
+# Create an nvim shim that logs its arguments and starts a real server that quits after one minute.
 export def make-shim [path: path, --interpreter: string = '/usr/bin/env bash']: nothing -> nothing {
+    let nvim = which nvim | where type == external | get --optional 0.path
+    let quit = "call timer_start(60000, {-> execute('qall!')})"
     let script = [
         $"#!($interpreter)"
         "printf '%s\\n' \"$*\" >> \"$SHIM_LOG\""
         'previous=""'
         'for argument in "$@"; do'
-        '  if [ "$previous" = "--listen" ]; then : > "$argument"; fi'
+        $"  if [ \"$previous\" = \"--listen\" ]; then '($nvim)' --clean --headless --listen \"$argument\" -c \"($quit)\" </dev/null >/dev/null 2>&1 & fi"
         '  previous="$argument"'
         'done'
         'exit 0'
@@ -63,13 +67,15 @@ export def make-setsid-shim [path: path]: nothing -> nothing {
     chmod +x $path
 }
 
-# Create an fzf shim. It logs its arguments, saves the input, and prints row `FZF_PICK`.
+# Create an fzf shim that logs its arguments, saves its input, and prints a row or exits.
 export def make-fzf-shim [path: path]: nothing -> nothing {
     let bash = get-bash
     let script = [
         $"#!($bash)"
         "printf '%s\\n' \"$*\" > \"$FZF_LOG\""
+        "printf 'SHELL=%s\\n' \"$SHELL\" >> \"$FZF_LOG\""
         'cat > "$FZF_INPUT"'
+        'printf "%s\\n" "$FZF_QUERY"'
         'if [ -n "$FZF_CODE" ]; then exit "$FZF_CODE"; fi'
         'sed -n "${FZF_PICK:-1}p" "$FZF_INPUT"'
     ] | str join (char nl)
@@ -78,6 +84,7 @@ export def make-fzf-shim [path: path]: nothing -> nothing {
     chmod +x $path
 }
 
+# Create an empty file, or fail with the reason.
 export def make-file [path: path]: nothing -> nothing {
     try {
         '' | save --force $path
@@ -86,6 +93,7 @@ export def make-file [path: path]: nothing -> nothing {
     }
 }
 
+# Read a text file, or fail with the reason.
 export def read-file [path: path]: nothing -> string {
     try {
         open --raw $path
@@ -94,6 +102,7 @@ export def read-file [path: path]: nothing -> string {
     }
 }
 
+# Write a text file, or fail with the reason.
 export def write-text [path: path, text: string]: nothing -> nothing {
     try {
         $text | save --force $path
@@ -102,6 +111,7 @@ export def write-text [path: path, text: string]: nothing -> nothing {
     }
 }
 
+# Run SQL with named parameters against a database file.
 export def query-store [db: path, sql: string, --params: record = {}]: nothing -> table {
     try {
         open $db | query db $sql --params $params
@@ -110,6 +120,7 @@ export def query-store [db: path, sql: string, --params: record = {}]: nothing -
     }
 }
 
+# Return the message of the error that a closure raises, or nothing.
 export def error-message [body: closure]: nothing -> oneof<string, nothing> {
     try {
         do $body | ignore
@@ -128,12 +139,13 @@ export def spawn-server [socket: path, ...files: path]: nothing -> nothing {
     }
 }
 
+# Stop a server that a test started, and wait until its socket is gone.
 export def stop-server [socket: path]: nothing -> nothing {
     nvim --clean --server $socket --remote-send '<C-\\><C-N>:qall!<CR>' | complete | ignore
     wait-until { not ($socket | path exists) } | ignore
 }
 
-# Run a cleanup after the body, also when the body fails.
+# Run a closure, then a cleanup closure also when the first one fails.
 export def finally [cleanup: closure, body: closure]: nothing -> nothing {
     try {
         do $body
@@ -155,28 +167,35 @@ export def make-shims [root: path]: nothing -> string {
     $bin
 }
 
-# Return a PATH that keeps the current one and puts the bin shims first.
+# Return a PATH that puts a directory before the current PATH.
 def with-bin [bin: path]: nothing -> string {
     [$bin] | append $env.PATH | str join (char esep)
 }
 
-# Run the body with the shims on PATH and a log of their calls.
+# Run a closure with the shims on PATH and a log file of their calls.
 export def with-shim-env [
     root: path
     bin: path
     body: closure
     --log: string = 'calls.log'
 ]: nothing -> nothing {
-    with-env {
-        XDG_STATE_HOME: $root
-        HOME: $root
-        PATH: (with-bin $bin)
-        SHIM_LOG: ($root | path join $log)
-    } {
-        do $body
-    } | ignore
+    let stop_servers = {||
+        glob ($root | path join '**/*.sock') | where {|socket| is-alive $socket } | each {|socket| stop-server $socket } | ignore
+    }
+
+    finally $stop_servers {
+        with-env {
+            XDG_STATE_HOME: $root
+            HOME: $root
+            PATH: (with-bin $bin)
+            SHIM_LOG: ($root | path join $log)
+        } {
+            do $body
+        } | ignore
+    }
 }
 
+# Point the socket of a stored session at a path.
 export def set-socket [root: path, name: string, socket: path]: nothing -> nothing {
     query-store ($root | path join nsm sessions.db) 'update sessions set socket = :socket where name = :name' --params {name: $name, socket: $socket} | ignore
 }
@@ -203,6 +222,7 @@ export def run-tests [file: path]: nothing -> nothing {
     print '✅ Tests completed successfully'
 }
 
+# Parse JSON text, or fail with the reason.
 export def from-json []: string -> table {
     try {
         from json

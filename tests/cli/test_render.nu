@@ -4,11 +4,12 @@ use ../../cli/render.nu [format-sessions format-sessions-json]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-def get-sessions []: nothing -> table {
+# Return one active session with a long path.
+def get-sessions []: nothing -> table<name: string, active: bool, path: string, attached_at: oneof<int, nothing>> {
     [
         {
             name: data-proxy.refactor-implement-projects
-            state: running
+            active: true
             path: /mnt/external/projects/iplanrio/data-proxy.refactor-implement-projects
             attached_at: null
         }
@@ -32,26 +33,20 @@ def "test format-sessions-respects-narrow-columns" []: nothing -> nothing {
     | any {|line| $line | str contains $path }
 
     assert ($narrow > $wide) 'a narrow width wraps the columns'
-    assert ($narrow_has_path == false) 'the path is split across lines'
+    assert (not $narrow_has_path) 'the path is split across lines'
 }
 
-def "test format-sessions-marks-every-state" []: nothing -> nothing {
+def "test format-sessions-marks-active-and-inactive" []: nothing -> nothing {
     let sessions = [
         {
             name: run
-            state: running
+            active: true
             path: /tmp/run
             attached_at: null
         }
         {
-            name: busy
-            state: busy
-            path: /tmp/busy
-            attached_at: null
-        }
-        {
             name: off
-            state: stopped
+            active: false
             path: /tmp/off
             attached_at: null
         }
@@ -65,7 +60,6 @@ def "test format-sessions-marks-every-state" []: nothing -> nothing {
     }
 
     assert ((do $status run) | str contains '● active') 'a running session is active'
-    assert ((do $status busy) | str contains '● active') 'a busy session is active'
     assert ((do $status off) | str contains '○ inactive') 'a stopped session is inactive'
     assert (not ($text | str contains '◐')) 'the table has no half circle'
 }
@@ -74,21 +68,14 @@ def "test format-sessions-json-lists-fields-and-status" []: nothing -> nothing {
     let sessions = [
         {
             name: run
-            state: running
+            active: true
             path: /tmp/run
             socket: /tmp/run.sock
             attached_at: 1700000000000000000
         }
         {
-            name: busy
-            state: busy
-            path: /tmp/busy
-            socket: /tmp/busy.sock
-            attached_at: null
-        }
-        {
             name: off
-            state: stopped
+            active: false
             path: /tmp/off
             socket: /tmp/off.sock
             attached_at: null
@@ -98,7 +85,7 @@ def "test format-sessions-json-lists-fields-and-status" []: nothing -> nothing {
     let rows = format-sessions-json $sessions | from json
 
     assert equal ($rows | columns) [name path socket status attached_at] 'each row has the documented fields'
-    assert equal ($rows | get status) [active active inactive] 'a busy server is active'
-    assert equal ($rows | get attached_at) ['2023-11-14T22:13:20+00:00' null null] 'the time is ISO 8601, or null'
+    assert equal ($rows | get status) [active inactive] 'a running server is active'
+    assert equal ($rows | get attached_at) ['2023-11-14T22:13:20+00:00' null] 'the time is ISO 8601, or null'
     assert equal (format-sessions-json [] | from json) [] 'no sessions give an empty list'
 }

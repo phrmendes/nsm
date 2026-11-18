@@ -1,24 +1,26 @@
 use std/assert
 use ./fixtures.nu [
+    error-message
+    finally
     from-json
     get-bash
-    make-dir
     in-root
+    in-store
     make-dir
     make-file
     make-fzf-shim
-    make-shim
     read-file
     run-tests
+    spawn-server
     with-shim-env
     write-text
 ]
 use ../../cli/picker.nu [list-candidates list-projects pick-candidate PREVIEW]
+use ../../cli/server.nu [find-server-pid]
 use ../../cli/store.nu [create-store get-session save-session]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
-# Verify that configured project roots discover repositories under every root and ignore PROJECTS_DIR.
 def "test list-projects-discovers-repositories-under-configured-roots" []: nothing -> nothing {
     in-root {|root|
         let first_root = $root | path join projects
@@ -85,7 +87,7 @@ def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
             save-session beta $root
 
             let candidates = list-candidates --sessions
-            let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_PICK: '2'} {
+            let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_PICK: '2', SHELL: nu} {
                 pick-candidate --sessions
             }
 
@@ -93,11 +95,62 @@ def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
             assert equal ($rows | length) 2 'fzf receives every candidate'
             let fields = $rows | each {|row| $row | split row (char tab) }
             assert equal ($fields | each { length } | uniq) [3] 'each row has a label, a path, and a name'
-            assert equal ($fields | each {|row| {name: $row.2, path: $row.1} } | sort-by name) ($candidates | select name path | sort-by name) 'each row carries its path and name'
+            assert equal ($fields | each {|row| {name: $row.2?, path: $row.1?} } | sort-by name) ($candidates | select name path | sort-by name) 'each row carries its path and name'
 
-            assert equal $picked ($fields | get 1 | get 2) 'the second fzf row is returned'
+            assert equal $picked ($fields | get --optional 1 | get --optional 2) 'the second fzf row is returned'
             assert ((read-file $log) =~ '--with-nth 1') 'fzf shows only the label'
             assert ((read-file $log) | str contains 'ls -1 {2}') 'fzf previews the path field'
+            assert ((read-file $log) | str contains 'SHELL=/bin/sh') 'fzf runs the preview in a POSIX shell'
+
+            let cancelled = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_QUERY: 'zz', FZF_CODE: '1'} {
+                pick-candidate --sessions
+            }
+            assert equal $cancelled null 'a query without a match picks nothing'
+        }
+    }
+}
+
+def "test pick-candidate-reports-an-empty-list" []: nothing -> nothing {
+    in-root {|root|
+        let bin = $root | path join bin
+        make-dir $bin
+        make-fzf-shim ($bin | path join fzf)
+
+        with-shim-env $root $bin {
+            create-store
+
+            let message = with-env {FZF_LOG: ($root | path join fzf.args), FZF_INPUT: ($root | path join fzf.input), FZF_CODE: '1'} {
+                error-message { pick-candidate --sessions }
+            }
+
+            assert equal $message 'There is nothing to pick. Start a session with `nsm new <name>`.'
+        }
+    }
+}
+
+def "test pick-candidate-streams-rows-before-slow-sources-finish" []: nothing -> nothing {
+    in-root {|root|
+        let bin = $root | path join bin
+        let bash = get-bash
+        make-dir $bin
+        write-text ($bin | path join zoxide) ([$"#!($bash)" 'sleep 3'] | str join (char nl))
+        write-text ($bin | path join fzf) ([
+            $"#!($bash)"
+            'IFS= read -r row'
+            'printf "\\n%s\\n" "$row"'
+        ] | str join (char nl))
+        chmod +x ($bin | path join zoxide) ($bin | path join fzf)
+
+        with-shim-env $root $bin {
+            create-store
+            save-session alpha $root
+
+            let started = date now
+            let picked = pick-candidate
+            let elapsed = (date now) - $started
+
+            assert equal $picked alpha 'the session row reaches fzf first'
+            assert ($elapsed < 1sec) $'fzf got the first row after ($elapsed)'
         }
     }
 }
@@ -110,33 +163,33 @@ def "test pick-prints-json-rows" []: nothing -> nothing {
         make-dir $bin
         make-dir $running_path
         make-dir $stored_path
-        make-shim ($bin | path join nvim) --interpreter (get-bash)
 
         with-shim-env $root $bin {
             create-store
             save-session running $running_path
             save-session stored $stored_path
-            make-file (get-session running).socket
+            let socket = (get-session running).socket
+            spawn-server $socket
+            make-file (get-session stored).socket
 
             let rows = nu --no-config-file cli/main.nu pick --sessions | from-json
 
             assert equal ($rows | where name == running | first) {
-                label: '🟢 running  ~/running'
+                label: '🟢 ~/running'
                 name: running
                 path: $running_path
                 source: running
-            } 'a live socket is running'
+            } 'a listening socket is running'
             assert equal ($rows | where name == stored | first) {
-                label: '⚫ stored  ~/stored'
+                label: '⚫ ~/stored'
                 name: stored
                 path: $stored_path
                 source: stored
-            } 'a missing socket is stored'
+            } 'a socket file without a server is stored'
         }
     }
 }
 
-# Verify that the scope keeps a directory and its children, never a sibling with the same prefix.
 def "test list-candidates-filters-by-scope" []: nothing -> nothing {
     in-root {|root|
         let inside = $root | path join proj
@@ -180,9 +233,8 @@ def "test preview-shows-a-directory-listing" []: nothing -> nothing {
 
         let listing = do $run $small
         assert equal ($listing | first) $small 'the preview starts with the path'
-        assert equal ($listing | skip 1 | take 3) ['' 'Files' ''] 'the heading follows the path'
-        assert equal ($listing | skip 4) [alpha.txt beta.txt] 'the entries are listed'
-        assert equal (do $run $large | skip 4 | length) 30 'only thirty entries are listed'
+        assert equal ($listing | skip 1) [alpha.txt beta.txt] 'the entries follow the path'
+        assert equal (do $run $large | skip 1 | length) 30 'only thirty entries are listed'
         assert equal (do $run $missing) [$missing '' 'The directory does not exist.']
     }
 }
@@ -204,13 +256,13 @@ def "test labels-show-paths-relative-to-the-project-roots" []: nothing -> nothin
             let rows = with-env {XDG_CONFIG_HOME: $root} { list-candidates --sessions }
             let labels = $rows | get label | sort
 
-            assert equal ($labels | get -o 0) '⚫ nsm  neovim/nsm' 'a session under the root shows the relative path'
-            assert equal ($labels | get -o 1) '⚫ thesis  ~/elsewhere/thesis' 'a session outside the root keeps the display path'
+            assert equal ($labels | get -o 0) '⚫ neovim/nsm' 'a session under the root shows the relative path'
+            assert equal ($labels | get -o 1) '⚫ ~/elsewhere/thesis' 'a session outside the root keeps the display path'
+            assert equal ($rows | get name | sort) [nsm thesis] 'the rows keep the session names'
         }
     }
 }
 
-# Verify that zoxide rows drop sessions and project roots, then keep the top five.
 def "test zoxide-rows-skip-sessions-and-project-roots" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin
@@ -247,36 +299,24 @@ def "test zoxide-rows-skip-sessions-and-project-roots" []: nothing -> nothing {
     }
 }
 
-def "test busy-sessions-get-the-busy-icon" []: nothing -> nothing {
-    in-root {|root|
-        let bin = $root | path join bin
+def "test stalled-servers-are-listed-at-once" []: nothing -> nothing {
+    in-store {|root|
         let project = $root | path join project
-        make-dir $bin
         make-dir $project
-        let bash = get-bash
-        write-text ($bin | path join nvim) ([
-            $"#!($bash)"
-            'sleep 5'
-        ] | str join (char nl))
-        chmod +x ($bin | path join nvim)
+        save-session slow $project
+        let socket = (get-session slow).socket
+        spawn-server $socket
+        let pid = find-server-pid $socket
 
-        with-env {
-            XDG_STATE_HOME: $root
-            HOME: $root
-            PATH: ([$bin] | append $env.PATH | str join (char esep))
-        } {
-            create-store
-            save-session slow $project
-            '' | save --force (get-session slow).socket
+        finally {|| ^kill -s KILL $pid } {
+            ^kill -s STOP $pid
 
+            let started = date now
             let rows = list-candidates --sessions
+            let elapsed = (date now) - $started
 
-            assert equal ($rows | where name == slow | first) {
-                label: '🟡 slow  ~/project'
-                name: slow
-                path: $project
-                source: busy
-            } 'a server that answers too late is busy'
+            assert equal ($rows | where name == slow | get source) [running] 'a stalled server still runs'
+            assert ($elapsed < 250ms) $'the picker waited ($elapsed) for a stalled server'
         }
     }
 }

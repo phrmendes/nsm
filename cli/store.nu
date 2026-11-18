@@ -1,14 +1,16 @@
 use lib.nu [fail]
 
+# Return the directory of the nsm state.
 def get-state-dir []: nothing -> string {
     $env.XDG_STATE_HOME? | default {|| $env.HOME | path join .local/state } | path join nsm
 }
 
+# Return the path of the sessions database.
 def get-db-file []: nothing -> string {
     get-state-dir | path join sessions.db
 }
 
-# Run SQL against the database of the sessions. Name each parameter in the query as `:name`.
+# Run SQL with named parameters against the sessions database.
 def run-sql [query: string, --params: record = {}]: nothing -> table {
     try {
         open (get-db-file) | query db $query --params $params
@@ -17,6 +19,7 @@ def run-sql [query: string, --params: record = {}]: nothing -> table {
     }
 }
 
+# Return the current time in nanoseconds since the epoch.
 def get-time []: nothing -> int {
     date now | into int
 }
@@ -32,24 +35,29 @@ def migrate-store []: nothing -> nothing {
     }
 }
 
-export def find-session [name: string]: nothing -> oneof<record, nothing> {
-    run-sql 'select name, path, socket from sessions where name = :name' --params {name: $name}
-    | get --optional 0
-}
-
-export def find-session-by-path [path: path]: nothing -> oneof<record, nothing> {
-    run-sql 'select name, path from sessions where path = :path' --params {path: $path}
-    | get --optional 0
-}
-
-export def list-session-names []: nothing -> list<string> {
-    run-sql 'select name from sessions' | get name
-}
-
+# Return the socket path of a new session.
 def make-socket-path [name: string]: nothing -> string {
     get-state-dir | path join $'($name).sock'
 }
 
+# Return the session with a name, or nothing.
+export def find-session [name: string]: nothing -> oneof<record<name: string, path: string, socket: string>, nothing> {
+    run-sql 'select name, path, socket from sessions where name = :name' --params {name: $name}
+    | get --optional 0
+}
+
+# Return the session that uses a directory, or nothing.
+export def find-session-by-path [path: path]: nothing -> oneof<record<name: string, path: string>, nothing> {
+    run-sql 'select name, path from sessions where path = :path' --params {path: $path}
+    | get --optional 0
+}
+
+# Return the name of every session.
+export def list-session-names []: nothing -> list<string> {
+    run-sql 'select name from sessions' | get name
+}
+
+# Create the sessions database and its table, and migrate an old database.
 export def create-store []: nothing -> nothing {
     try {
         mkdir (get-state-dir)
@@ -73,6 +81,7 @@ export def create-store []: nothing -> nothing {
     migrate-store
 }
 
+# Return the session with a name, or fail.
 export def get-session [name: string]: nothing -> record<name: string, path: string, socket: string> {
     let session = find-session $name
 
@@ -83,6 +92,7 @@ export def get-session [name: string]: nothing -> record<name: string, path: str
     $session
 }
 
+# Create a session, or update its directory, and return it.
 export def save-session [name: string, path: path]: nothing -> record<name: string, path: string, socket: string> {
     let upsert = 'insert into sessions (name, path, socket, created_at)
         values (:name, :path, :socket, :now)
@@ -98,11 +108,13 @@ export def save-session [name: string, path: path]: nothing -> record<name: stri
     get-session $name
 }
 
-export def list-sessions []: nothing -> table {
+# Return the sessions ordered by name.
+export def list-sessions []: nothing -> table<name: string, path: string, socket: string, attached_at: oneof<int, nothing>> {
     run-sql 'select name, path, socket, attached_at from sessions order by name'
 }
 
-export def list-recent-sessions []: nothing -> table {
+# Return the sessions ordered by the most recent attach.
+export def list-recent-sessions []: nothing -> table<name: string, path: string, socket: string> {
     run-sql 'select name, path, socket from sessions order by attached_at desc'
 }
 
@@ -120,6 +132,7 @@ export def get-previous-session-name []: nothing -> oneof<string, nothing> {
     $previous.name
 }
 
+# Record that a session is attached now.
 export def touch-session [name: string]: nothing -> nothing {
     run-sql 'update sessions set attached_at = :now where name = :name' --params {
         now: (get-time)
@@ -127,6 +140,7 @@ export def touch-session [name: string]: nothing -> nothing {
     } | ignore
 }
 
+# Remove a session from the database.
 export def delete-session [name: string]: nothing -> nothing {
     run-sql 'delete from sessions where name = :name' --params {name: $name} | ignore
 }

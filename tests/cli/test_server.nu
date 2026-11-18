@@ -20,7 +20,6 @@ use ./fixtures.nu [
 use ../../cli/server.nu [
     find-server-pid
     get-restore-args
-    get-state
     has-unsaved-changes
     is-alive
     wait-until
@@ -34,9 +33,9 @@ def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> not
         let log = $root | path join calls.log
         let project = $root | path join project
         make-dir $project
-        let bin_path = make-shims $root
+        let bin = make-shims $root
 
-        with-shim-env $root $bin_path {
+        with-shim-env $root $bin {
             create-store
             save-session demo $project
             let socket = $root | path join custom.sock
@@ -50,6 +49,30 @@ def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> not
 
             let attached = query-store ($root | path join nsm sessions.db) 'select attached_at from sessions where name = :name' --params {name: demo} | first
             assert ($attached.attached_at != null) 'the session counts as attached'
+        }
+    }
+}
+
+def "test start-announces-the-server-on-stderr" []: nothing -> nothing {
+    in-root {|root|
+        let project = $root | path join project
+        make-dir $project
+        let bin = make-shims $root
+
+        with-shim-env $root $bin {
+            create-store
+            save-session demo $project
+            let socket = (get-session demo).socket
+
+            let first = nu --no-config-file cli/main.nu start demo | complete
+            assert equal $first.exit_code 0 $first.stderr
+            assert equal ($first.stdout | str trim) $socket 'stdout holds only the socket'
+            assert ($first.stderr | str contains 'Starting demo…') $'a new server is announced: ($first.stderr)'
+
+            wait-until { is-alive $socket } | ignore
+            let second = nu --no-config-file cli/main.nu start demo | complete
+            assert equal ($second.stdout | str trim) $socket 'stdout holds only the socket'
+            assert equal ($second.stderr | ansi strip | str trim) '' 'a running server is not announced'
         }
     }
 }
@@ -122,7 +145,6 @@ def "test attach-starts-a-stopped-session-and-reuses-a-running-one" []: nothing 
     }
 }
 
-# Verify that a server that cannot answer is an error, not a clean result.
 def "test has-unsaved-changes-fails-on-a-dead-socket" []: nothing -> nothing {
     in-store {|root|
         save-session demo $root
@@ -167,6 +189,8 @@ def "test start-does-not-leak-inherited-files" []: nothing -> nothing {
             let result = bash -c $script | complete
 
             assert equal $result.exit_code 0 $result.stderr
+            # Wait for the end of the startup, while Neovim still opens and closes files.
+            nvim --clean --server $socket --remote-expr '1' | complete | ignore
             let pid = find-server-pid $socket
             let held = ls -l $'/proc/($pid)/fd' | where target == $leak
             assert equal ($held | length) 0 'the server does not hold a file of its parent'
@@ -220,7 +244,7 @@ def "test start-passes-the-restore-file-to-the-server" []: nothing -> nothing {
     }
 }
 
-# Stop a server by signal, also when it is stalled.
+# End a server with a KILL signal, also when it is stalled.
 def end-server [socket: path]: nothing -> nothing {
     let pid = find-server-pid $socket
 
@@ -229,7 +253,6 @@ def end-server [socket: path]: nothing -> nothing {
     }
 }
 
-# Verify that a server that does not answer is refused by kill, and ended by kill --force.
 def "test kill-handles-a-stalled-server" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
@@ -264,8 +287,7 @@ def "test kill-handles-a-stalled-server" []: nothing -> nothing {
     }
 }
 
-# Verify that list probes the sessions together, so two stalled servers cost one timeout.
-def "test list-probes-sessions-in-parallel" []: nothing -> nothing {
+def "test list-does-not-wait-on-stalled-servers" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
         let first = $root | path join first.sock
@@ -288,7 +310,7 @@ def "test list-probes-sessions-in-parallel" []: nothing -> nothing {
 
             assert equal $result.exit_code 0 $result.stderr
             assert equal ($result.stdout | lines | where {|line| $line | str contains '● active' } | length) 2 'a stalled server counts as active'
-            assert ($elapsed < 1800ms) $'two stalled servers cost one timeout, not two: ($elapsed)'
+            assert ($elapsed < 250ms) $'list waited ($elapsed) for stalled servers'
         }
     }
 }
@@ -335,52 +357,42 @@ def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> n
     }
 }
 
-# Verify that a server which answers too late counts as busy, not as stopped.
-def "test get-state-tells-busy-from-stopped" []: nothing -> nothing {
+def "test is-alive-tells-a-listening-socket-from-a-file" []: nothing -> nothing {
     in-root {|root|
         let log = $root | path join calls.log
         let project = $root | path join project
-        let busy_socket = $root | path join busy.sock
-        let running_socket = $root | path join running.sock
-        let missing_socket = $root | path join missing.sock
+        let stalled = $root | path join stalled.sock
+        let stale = $root | path join stale.sock
         let bin = make-shims $root
         make-dir $project
 
         with-shim-env $root $bin {
             create-store
-            save-session busy $project
-            save-session running $project
-            set-socket $root busy $busy_socket
-            set-socket $root running $running_socket
-            '' | save --force $busy_socket
-            '' | save --force $running_socket
-            assert equal (get-state $missing_socket) 'stopped' 'a socket that does not exist is stopped'
+            save-session stalled $project
+            set-socket $root stalled $stalled
+            '' | save --force $stale
+            spawn-server $stalled
+            let pid = find-server-pid $stalled
 
-            # The fast shim answers at once, so its session is running.
-            assert equal (get-state $running_socket) 'running' 'a server that answers is running'
+            finally {|| ^kill -s KILL $pid } {
+                ^kill -s STOP $pid
 
-            # The slow shim outlives the probe, so its session is busy, never stopped.
-            let bash = get-bash
-            write-text ($bin | path join nvim) ([
-                $"#!($bash)"
-                'sleep 5'
-            ] | str join (char nl))
-            chmod +x ($bin | path join nvim)
+                assert (not (is-alive ($root | path join missing.sock))) 'a missing socket is not alive'
+                assert (not (is-alive $stale)) 'a socket file without a server is not alive'
+                assert (is-alive $stalled) 'a stalled server still listens'
 
-            assert equal (get-state $busy_socket) 'busy' 'a server that answers too late is busy'
-            assert (is-alive $busy_socket) 'a busy server counts as alive'
+                let before = read-file $log | lines | length
+                let result = nu --no-config-file cli/main.nu start stalled | complete
 
-            let result = nu --no-config-file cli/main.nu start busy | complete
-
-            assert equal $result.exit_code 0 $result.stderr
-            assert equal ($result.stdout | str trim) $busy_socket 'a busy server keeps its socket'
-            let starts = read-file $log | lines | where {|line| $line =~ '--headless' }
-            assert equal ($starts | length) 0 'a busy server is not started again'
+                assert equal $result.exit_code 0 $result.stderr
+                assert equal ($result.stdout | str trim) $stalled 'a stalled server keeps its socket'
+                let starts = read-file $log | lines | skip $before | where {|line| $line =~ '--headless' }
+                assert equal ($starts | length) 0 'a stalled server is not started again'
+            }
         }
     }
 }
 
-# Verify that an answer that is not a number is a clear error, not an unsaved session.
 def "test has-unsaved-changes-rejects-an-empty-answer" []: nothing -> nothing {
     in-root {|root|
         let bin = make-shims $root

@@ -3,17 +3,16 @@ use lib.nu [EXIT_UNSAVED fail get-display-path remove-path]
 use store.nu [delete-session get-session save-session touch-session]
 use target.nu [resolve-target]
 
-const POLL_ATTEMPTS = 50
-const POLL_INTERVAL = 100ms
+const POLL_ATTEMPTS = 500
+const POLL_INTERVAL = 10ms
 const REMOTE_TIMEOUT = 2
-const PROBE_TIMEOUT = 1
-const SIGNAL_ATTEMPTS = 10
+const SIGNAL_ATTEMPTS = 100
 
-# The AppImage runtime keeps its mount while a process holds the files that it passes down.
-# Close every file above 2 before `nvim` runs, so the server does not hold the mount.
+# Close every file above 2 before `nvim` runs, so the server does not hold the AppImage mount.
 const CLOSE_FDS = 'for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
 
-def start-server [session: record]: nothing -> nothing {
+# Start a detached server for a session in its directory, and wait until it listens.
+def start-server [session: record<name: string, path: string, socket: string>]: nothing -> nothing {
     remove-path $session.socket
 
     try {
@@ -24,6 +23,8 @@ def start-server [session: record]: nothing -> nothing {
 
     let restore = get-restore-args $session.path
 
+    print --stderr $'Starting ($session.name)…'
+
     with-env {NSM_SESSION: $session.name} {
         setsid --fork bash -c $CLOSE_FDS bash nvim --headless --listen $session.socket ...$restore o+e> /dev/null
     }
@@ -33,45 +34,65 @@ def start-server [session: record]: nothing -> nothing {
     }
 }
 
-# Run a remote expression on a server and return the completed command.
-# A server that does not answer in time counts as unreachable.
-def remote-expr [socket: path, expression: string, --timeout: int = $REMOTE_TIMEOUT]: nothing -> record {
-    timeout $timeout nvim --clean --server $socket --remote-expr $expression | complete
+# Run a remote expression on a server, and return the completed command.
+def remote-expr [socket: path, expression: string]: nothing -> record<stdout: string, stderr: string, exit_code: int> {
+    timeout $REMOTE_TIMEOUT nvim --clean --server $socket --remote-expr $expression | complete
 }
 
-def open-session [session: record]: nothing -> nothing {
+# Open a session in the current terminal.
+def open-session [session: record<name: string, path: string, socket: string>]: nothing -> nothing {
     touch-session $session.name
 
     print $'Opening ($session.name) (get-display-path $session.path)…'
     nvim --server $session.socket --remote-ui
 }
 
-# Return the state of a server: `stopped` when it does not answer, `busy` when it answers
-# too late, and `running` when it answers in time.
-export def get-state [socket: path]: nothing -> string {
-    if not ($socket | path exists) {
-        return 'stopped'
+# Check whether a process runs. A zombie waits for its parent and does not run.
+def is-running [pid: int]: nothing -> bool {
+    try {
+        (
+            open --raw $'/proc/($pid)/stat'
+            | parse --regex '\) (?<state>\S)'
+            | get state.0
+        ) != 'Z'
+    } catch {
+        false
     }
-
-    let result = remote-expr $socket '1' --timeout $PROBE_TIMEOUT
-
-    if $result.exit_code == 0 {
-        return 'running'
-    }
-
-    if $result.exit_code == 124 {
-        return 'busy'
-    }
-
-    'stopped'
 }
 
-# Check whether a server answers on a socket. A busy server counts as alive.
+# Send a signal to a server, and wait until its process ends.
+def signal-server [pid: int, signal: string]: nothing -> bool {
+    ^kill -s $signal $pid | complete | ignore
+
+    wait-until --attempts $SIGNAL_ATTEMPTS { not (is-running $pid) }
+}
+
+# Ask a server to quit, and end it with a signal when `force` is set.
+def stop-server [name: string, socket: path, force: bool]: nothing -> nothing {
+    timeout $REMOTE_TIMEOUT nvim --clean --server $socket --remote-send '<C-\><C-N>:qall!<CR>' | complete | ignore
+
+    let attempts = if $force { $SIGNAL_ATTEMPTS } else { $POLL_ATTEMPTS }
+
+    if (wait-until --attempts $attempts { not ($socket | path exists) }) {
+        return
+    }
+
+    let pid = if $force { find-server-pid $socket } else { null }
+    let ended = $pid != null and ((signal-server $pid TERM) or (signal-server $pid KILL))
+
+    if not $ended {
+        let reason = if $force and $pid == null { ', and its process is unknown' } else { '' }
+
+        fail $'The server of ($name) did not stop($reason).'
+    }
+}
+
+# Check whether a server listens on a socket.
 export def is-alive [socket: path]: nothing -> bool {
-    (get-state $socket) != 'stopped'
+    open --raw /proc/net/unix | str contains $' ($socket)(char nl)'
 }
 
-# Run a check every 100 ms until it passes. Give up after 50 polls, or `--attempts` polls.
+# Poll a condition every 10 ms, and return whether it passed before the attempts ran out.
 export def wait-until [check: closure, --attempts: int = $POLL_ATTEMPTS]: nothing -> bool {
     for _ in 1..$attempts {
         if (do $check) {
@@ -84,8 +105,7 @@ export def wait-until [check: closure, --attempts: int = $POLL_ATTEMPTS]: nothin
     false
 }
 
-# Return whether a server has listed buffers with unsaved changes.
-# Fail when the server does not answer.
+# Check whether a server has listed buffers with unsaved changes.
 export def has-unsaved-changes [name: string]: nothing -> bool {
     let expression = 'len(filter(getbufinfo({"buflisted": 1}), {_, b -> b.changed}))'
     let socket = (get-session $name).socket
@@ -107,7 +127,8 @@ export def has-unsaved-changes [name: string]: nothing -> bool {
     $count != '0'
 }
 
-export def get-dirty-sessions [sessions: table]: nothing -> list<string> {
+# Return the names of the running sessions that have unsaved changes.
+export def get-dirty-sessions [sessions: table<name: string, socket: string>]: nothing -> list<string> {
     $sessions
     | par-each --keep-order {|session|
         {name: $session.name, dirty: ((is-alive $session.socket) and (has-unsaved-changes $session.name))}
@@ -116,6 +137,7 @@ export def get-dirty-sessions [sessions: table]: nothing -> list<string> {
     | get name
 }
 
+# Return the process id of the server that listens on a socket, or nothing.
 export def find-server-pid [socket: path]: nothing -> oneof<int, nothing> {
     let pids = glob '/proc/[0-9]*/cmdline'
     | where {|file|
@@ -129,55 +151,12 @@ export def find-server-pid [socket: path]: nothing -> oneof<int, nothing> {
     $pids | get --optional 0
 }
 
-# Return whether a process runs. A zombie waits for its parent and does not run.
-def is-running [pid: int]: nothing -> bool {
-    try {
-        (
-            open --raw $'/proc/($pid)/stat'
-            | parse --regex '\) (?<state>\S)'
-            | get state.0
-        ) != 'Z'
-    } catch {
-        false
-    }
-}
-
-def signal-server [pid: int, signal: string]: nothing -> bool {
-    ^kill -s $signal $pid | complete | ignore
-
-    wait-until --attempts $SIGNAL_ATTEMPTS { not (is-running $pid) }
-}
-
-# Ask a server to quit, and end it with a signal when it does not answer and `--force` is set.
-def stop-server [socket: path, force: bool]: nothing -> nothing {
-    timeout $REMOTE_TIMEOUT nvim --clean --server $socket --remote-send '<C-\><C-N>:qall!<CR>' | complete | ignore
-
-    let attempts = if $force { $SIGNAL_ATTEMPTS } else { $POLL_ATTEMPTS }
-
-    if (wait-until --attempts $attempts { not ($socket | path exists) }) {
-        return
-    }
-
-    if not $force {
-        fail $'The server on ($socket) did not stop.'
-    }
-
-    let pid = find-server-pid $socket
-
-    if $pid == null {
-        fail $'The server on ($socket) did not stop, and its process is unknown.'
-    }
-
-    if not (signal-server $pid TERM) and not (signal-server $pid KILL) {
-        fail $'The server on ($socket) did not stop.'
-    }
-}
-
+# Stop the server of a session, and forget the session.
 export def stop-session [name: string, --force]: nothing -> nothing {
     let session = get-session $name
 
     if ($session.socket | path exists) {
-        stop-server $session.socket $force
+        stop-server $name $session.socket $force
     }
 
     remove-path $session.socket
@@ -186,7 +165,7 @@ export def stop-session [name: string, --force]: nothing -> nothing {
     print $'Stopped ($name).'
 }
 
-# Create the session when it is missing, and start its server when it is stopped.
+# Create the session when it is missing, and start its server when it does not run.
 export def start-session [target: string]: nothing -> record<name: string, path: string, socket: string> {
     let target_session = resolve-target $target
     let session = save-session $target_session.name $target_session.path
@@ -198,7 +177,7 @@ export def start-session [target: string]: nothing -> record<name: string, path:
     $session
 }
 
-# Create the session when it is missing, start its server when it is stopped, and open it.
+# Create the session when it is missing, start its server when it does not run, and open it.
 export def connect-session [target: oneof<string, nothing>]: nothing -> nothing {
     if $target == null {
         return

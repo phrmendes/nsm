@@ -5,7 +5,6 @@ use render.nu [format-sessions format-sessions-json]
 use server.nu [
     connect-session
     get-dirty-sessions
-    get-state
     has-unsaved-changes
     is-alive
     start-session
@@ -26,6 +25,7 @@ use version.nu [VERSION]
 
 $env.config = ($env.config | upsert error_style 'short')
 
+# Run a closure against the session store, and report its failure.
 def run-command [body: closure]: nothing -> nothing {
     report-error {
         create-store
@@ -33,6 +33,7 @@ def run-command [body: closure]: nothing -> nothing {
     }
 }
 
+# Stop every session, and refuse sessions with unsaved changes unless `force` is set.
 def kill-all [force: bool]: nothing -> nothing {
     let sessions = list-sessions
 
@@ -54,6 +55,7 @@ def kill-all [force: bool]: nothing -> nothing {
     }
 }
 
+# Stop one session, and refuse it with unsaved changes unless `force` is set.
 def kill-one [target: string, force: bool]: nothing -> nothing {
     let session = get-session $target
 
@@ -64,14 +66,36 @@ def kill-one [target: string, force: bool]: nothing -> nothing {
     stop-session $target --force=$force
 }
 
-def get-summary [name: string]: nothing -> string {
-    let command = scope commands | where name == $name | get --optional 0
+# Return the `main` commands of this file with their short forms and parameters.
+def get-commands []: nothing -> table<name: string, short: oneof<string, nothing>, summary: string, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>> {
+    let aliases = scope aliases | where {|alias| $alias.name starts-with 'main ' }
 
-    if $command == null {
-        return ''
+    scope commands
+    | where {|command| $command.name starts-with 'main ' }
+    | each {|command|
+        let short = $aliases | where expansion == $command.name | get --optional 0.name
+
+        {
+            name: ($command.name | str replace 'main ' '')
+            short: ($short | if $in == null { null } else { str replace 'main ' '' })
+            summary: ($command.description | str replace --regex '\.$' '')
+            parameters: (
+                $command.signatures
+                | values
+                | first
+                | where parameter_type in [positional named switch]
+                | each {|parameter|
+                    {
+                        name: $parameter.parameter_name
+                        kind: $parameter.parameter_type
+                        shape: $parameter.syntax_shape
+                        short: $parameter.short_flag
+                        optional: $parameter.is_optional
+                    }
+                }
+            )
+        }
     }
-
-    $command.description | str replace --regex '\.$' ''
 }
 
 # Pick another session and open it.
@@ -161,7 +185,7 @@ def "main list" [
 ]: nothing -> nothing {
     run-command {
         let sessions = list-sessions
-        | par-each --keep-order {|session| $session | insert state (get-state $session.socket) }
+        | insert active {|session| is-alive $session.socket }
 
         if $json {
             print (format-sessions-json $sessions)
@@ -192,7 +216,7 @@ def "main start" [
     target: string # A session name or a directory
 ]: nothing -> nothing {
     run-command {
-        let session = (start-session $target)
+        let session = start-session $target
 
         touch-session $session.name
         print $session.socket
@@ -202,7 +226,7 @@ def "main start" [
 # Stop the server of a session and forget the session.
 #
 # Without a name, pick one of the sessions.
-# A session with unsaved changes is refused, and so is a server that does not answer.
+# The command refuses a session with unsaved changes, and a server that does not answer.
 # Use `--force` to stop it anyway.
 def "main kill" [
     name?: string # The session to stop
@@ -240,7 +264,7 @@ def "main completions" [
     shell: string # The shell to complete for
 ]: nothing -> nothing {
     report-error {
-        print (get-completions $shell)
+        print (get-completions $shell (get-commands))
     }
 }
 
@@ -253,24 +277,8 @@ def main [
         return
     }
 
-    let names = [
-        'main attach'
-        'main switch'
-        'main last'
-        'main new'
-        'main list'
-        'main pick'
-        'main start'
-        'main kill'
-        'main names'
-        'main completions'
-    ]
-
-    $names
-    | each {|name|
-        let short = $name | str replace 'main ' ''
-        $"  ($short)  (get-summary $name)"
-    }
+    get-commands
+    | each {|command| $"  ($command.name)  ($command.summary)" }
     | str join (char nl)
     | print
 }

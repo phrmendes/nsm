@@ -1,4 +1,6 @@
 [rules]
+# A failing builtin stops the script with its own message, and a `try` that only repeats it adds noise.
+catch_builtin_error_try = "off"
 # A pipe to `ignore` waits for the detached Neovim server to close the pipe, so the call redirects to /dev/null.
 ignore_over_dev_null = "off"
 # The error of an external command stops the script, and a `try` that only repeats it adds noise.

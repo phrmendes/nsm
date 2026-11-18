@@ -2,16 +2,17 @@ use lib.nu [fail get-display-path]
 
 const DEFAULT_ICONS = {
     running: '🟢'
-    busy: '🟡'
     stored: '⚫'
     directory: '📁'
 }
 
+# Return the path of the configuration file.
 def get-config-file []: nothing -> string {
     ($env.XDG_CONFIG_HOME? | default ($env.HOME | path join .config)) | path join .nsm.nuon
 }
 
-export def get-config []: nothing -> record {
+# Return the configuration, with the defaults for the missing keys.
+export def get-config []: nothing -> record<projects: list<string>, icons: record<running: string, stored: string, directory: string>, restore: record<file: oneof<string, nothing>>> {
     let file = get-config-file
 
     if not ($file | path exists) {

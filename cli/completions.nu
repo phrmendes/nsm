@@ -1,18 +1,11 @@
 use lib.nu [fail]
 
-const COMMANDS = [
-    [name, short];
-    [attach, a]
-    [switch, s]
-    [last, l]
-    [new, n]
-    [list, ls]
-    [pick, null]
-    [start, null]
-    [kill, k]
-    [names, null]
-    [completions, null]
-]
+const COMPLETERS = {
+    attach: {target: sessions}
+    start: {target: sessions}
+    kill: {name: sessions}
+    completions: {shell: shells}
+}
 
 const BASH = '_nsm() {
     local word=${COMP_WORDS[COMP_CWORD]}
@@ -68,39 +61,37 @@ _nsm() {
 compdef _nsm nsm
 '
 
-export def get-completions [shell: string]: nothing -> string {
-    match $shell {
-        bash => ($BASH | str replace '@COMMANDS@' (get-command-words))
-        zsh => ($ZSH | str replace '@COMMANDS@' (get-command-words))
-        nu => (get-nushell-script)
-        _ => (fail $'Unknown shell ($shell). Use bash, zsh, or nu.')
-    }
+# Return the command names and the short forms, separated by spaces.
+def get-command-words [commands: table<name: string, short: oneof<string, nothing>>]: nothing -> string {
+    $commands | get name | append ($commands | get short | compact) | str join ' '
 }
 
-def get-command-words []: nothing -> string {
-    $COMMANDS | get name | append ($COMMANDS | get short | compact) | str join ' '
+# Return the parameters of a command as the text of a Nushell `extern`.
+def get-extern-parameters [command: record<name: string, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>>]: nothing -> string {
+    $command.parameters
+    | each {|parameter|
+        let completer = $COMPLETERS | get --optional $command.name | get --optional $parameter.name
+        let shape = if $completer == null { $parameter.shape } else { $'($parameter.shape)@"nu-complete nsm ($completer)"' }
+        let short = if $parameter.short == null { '' } else { ['(-' $parameter.short ')'] | str join }
+
+        match $parameter.kind {
+            positional => $'($parameter.name)(if $parameter.optional { '?' }): ($shape)'
+            switch => $'--($parameter.name)($short)'
+            _ => $'--($parameter.name)($short): ($shape)'
+        }
+    }
+    | str join ', '
 }
 
-def get-nushell-script []: nothing -> string {
-    let signatures = {
-        attach: 'target?: string@"nu-complete nsm sessions", --scope: string'
-        switch: '--scope: string'
-        last: '--print'
-        new: 'name: string, path?: path'
-        list: '--json'
-        pick: '--sessions, --scope: string'
-        start: 'target: string@"nu-complete nsm sessions"'
-        kill: 'name?: string@"nu-complete nsm sessions", --all(-a), --force(-f), --scope: string'
-        names: ''
-        completions: 'shell: string@"nu-complete nsm shells"'
-    }
-
-    let externs = $COMMANDS
+# Return the Nushell script with one `extern` for each command and short form.
+def get-nushell-script [commands: table<name: string, short: oneof<string, nothing>, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>>]: nothing -> string {
+    let externs = $commands
     | each {|command|
-        let signature = $signatures | get $command.name
-        let names = [$command.name $command.short] | compact
+        let parameters = get-extern-parameters $command
 
-        $names | each {|name| $'export extern "nsm ($name)" [($signature)]' }
+        [$command.name $command.short]
+        | compact
+        | each {|name| $'export extern "nsm ($name)" [($parameters)]' }
     }
     | flatten
 
@@ -110,4 +101,14 @@ def get-nushell-script []: nothing -> string {
         'export extern "nsm" [--version(-v)]'
         ...$externs
     ] | str join (char nl) | $in + (char nl)
+}
+
+# Return the script that completes nsm in the shell `bash`, `zsh`, or `nu`.
+export def get-completions [shell: string, commands: table<name: string, short: oneof<string, nothing>, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>>]: nothing -> string {
+    match $shell {
+        bash => ($BASH | str replace '@COMMANDS@' (get-command-words $commands))
+        zsh => ($ZSH | str replace '@COMMANDS@' (get-command-words $commands))
+        nu => (get-nushell-script $commands)
+        _ => (fail $'Unknown shell ($shell). Use bash, zsh, or nu.')
+    }
 }
