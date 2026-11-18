@@ -46,9 +46,10 @@
             meta.description = "Run the nsm CLI";
           };
         };
+      all = forAllSystems perSystem;
     in
     {
-      packages = forAllSystems (system: (perSystem system).packages);
-      apps = forAllSystems (system: (perSystem system).apps);
+      packages = nixpkgs.lib.mapAttrs (_: output: output.packages) all;
+      apps = nixpkgs.lib.mapAttrs (_: output: output.apps) all;
     };
 }
