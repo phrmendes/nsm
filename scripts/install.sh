@@ -69,10 +69,7 @@ command -v nvim >/dev/null 2>&1 || note 'Neovim is not on PATH. Install Neovim 0
 
 command -v git >/dev/null 2>&1 || note 'git is not on PATH. Sessions take the directory name, not the repository name.'
 
-if ! command -v fusermount3 >/dev/null 2>&1; then
-    note 'There is no fusermount3. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
-fi
-
-if [ ! -e /dev/fuse ]; then
-    note 'There is no /dev/fuse. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm.'
-fi
+missing=
+command -v fusermount3 >/dev/null 2>&1 || missing=fusermount3
+[ -e /dev/fuse ] || missing=${missing:+$missing and }/dev/fuse
+[ -z "$missing" ] || note "There is no $missing. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm."
