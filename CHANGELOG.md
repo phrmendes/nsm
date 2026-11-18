@@ -1,3 +1,17 @@
+## v1.1.2 (2026-11-18)
+
+### Fixes
+
+- **install**: print one note for a missing FUSE tool
+
+### Refactoring
+
+- **plugin**: use only vim.ui.select and move the helpers to utils
+
+### Performance
+
+- **cli**: stream the picker rows and skip the server probe
+
 ## v1.1.1 (2026-11-17)
 
 ### Fixes
