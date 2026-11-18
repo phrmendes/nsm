@@ -6,13 +6,18 @@ const DEFAULT_ICONS = {
     directory: '📁'
 }
 
+const DEFAULT_START = {
+    environment: true
+    timeout: 300
+}
+
 # Return the path of the configuration file.
 def get-config-file []: nothing -> string {
     ($env.XDG_CONFIG_HOME? | default ($env.HOME | path join .config)) | path join .nsm.nuon
 }
 
 # Return the configuration, with the defaults for the missing keys.
-export def get-config []: nothing -> record<projects: list<string>, icons: record<running: string, stored: string, directory: string>, restore: record<file: oneof<string, nothing>>> {
+export def get-config []: nothing -> record<projects: list<string>, icons: record<running: string, stored: string, directory: string>, restore: record<file: oneof<string, nothing>>, start: record<environment: bool, timeout: int>> {
     let file = get-config-file
 
     if not ($file | path exists) {
@@ -20,6 +25,7 @@ export def get-config []: nothing -> record<projects: list<string>, icons: recor
             projects: []
             icons: $DEFAULT_ICONS
             restore: {file: null}
+            start: $DEFAULT_START
         }
     }
 
@@ -37,5 +43,6 @@ export def get-config []: nothing -> record<projects: list<string>, icons: recor
         restore: {
             file: ($user | get --optional restore.file)
         }
+        start: ($DEFAULT_START | merge ($user.start? | default {}))
     }
 }

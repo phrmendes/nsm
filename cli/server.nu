@@ -7,9 +7,64 @@ const POLL_ATTEMPTS = 500
 const POLL_INTERVAL = 10ms
 const REMOTE_TIMEOUT = 2
 const SIGNAL_ATTEMPTS = 100
+const PLAIN_TIMEOUT = 5
+const ENVIRONMENT_INTERVAL = 200ms
+const HEARTBEAT = 5sec
 
 # Close every file above 2 before `nvim` runs, so the server does not hold the AppImage mount.
 const CLOSE_FDS = 'for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
+
+# Check whether a process starts the server of a session, also while its command line hides the socket.
+def is-starting [name: string, socket: path]: nothing -> bool {
+    if (find-server-pid $socket) != null {
+        return true
+    }
+
+    glob '/proc/[0-9]*/environ'
+    | any {|file|
+        try { open --raw $file | split row (char --integer 0) | any {|entry| $entry == $'NSM_SESSION=($name)' } } catch { false }
+    }
+}
+
+# Return the log file that sits next to the socket of a server.
+def get-log-file [socket: path]: nothing -> string {
+    $socket | str replace --regex '\.sock$' '.log'
+}
+
+# Return the last lines of a log file without colour codes.
+def read-log-tail [log: path]: nothing -> string {
+    try {
+        open --raw $log | ansi strip | lines | where {|line| $line | is-not-empty } | last 10 | str join (char nl)
+    } catch {
+        ''
+    }
+}
+
+# Wait until a server listens or no process starts it, and report an environment load every few seconds.
+def wait-for-server [
+    session: record<name: string, path: string, socket: string>
+    attempts: int
+    interval: duration
+    report: bool
+]: nothing -> nothing {
+    let started = date now
+    mut next_report = $HEARTBEAT
+
+    for _ in 1..$attempts {
+        if (is-alive $session.socket) or not (is-starting $session.name $session.socket) {
+            return
+        }
+
+        sleep $interval
+
+        let elapsed = (date now) - $started
+
+        if $report and $elapsed >= $next_report {
+            print --stderr $'Still loading the environment of ($session.name)… ($elapsed / 1sec | math floor) s'
+            $next_report += $HEARTBEAT
+        }
+    }
+}
 
 # Start a detached server for a session in its directory, and wait until it listens.
 def start-server [session: record<name: string, path: string, socket: string>]: nothing -> nothing {
@@ -22,15 +77,42 @@ def start-server [session: record<name: string, path: string, socket: string>]: 
     }
 
     let restore = get-restore-args $session.path
+    let environment = get-environment-command $session.path
+    let log = get-log-file $session.socket
+    let timeout_seconds = if ($environment | is-empty) { $PLAIN_TIMEOUT } else { (get-config).start.timeout }
 
     print --stderr $'Starting ($session.name)…'
 
-    with-env {NSM_SESSION: $session.name} {
-        setsid --fork bash -c $CLOSE_FDS bash nvim --headless --listen $session.socket ...$restore o+e> /dev/null
+    if ($environment | is-not-empty) {
+        print --stderr $'Loading the environment of ($session.name) with ($environment | first)…'
     }
 
-    if not (wait-until { is-alive $session.socket }) {
-        fail $'The server of ($session.name) did not start.'
+    with-env {NSM_SESSION: $session.name} {
+        setsid --fork bash -c $CLOSE_FDS bash ...$environment nvim --headless --listen $session.socket ...$restore o+e> $log
+    }
+
+    let interval = if ($environment | is-empty) { $POLL_INTERVAL } else { $ENVIRONMENT_INTERVAL }
+    let attempts = ($timeout_seconds * 1sec / $interval) | into int
+
+    (wait-for-server
+        $session
+        $attempts
+        $interval
+        ($environment | is-not-empty)
+    )
+
+    let failure = if (is-alive $session.socket) {
+        null
+    } else if (is-starting $session.name $session.socket) {
+        $'The server of ($session.name) did not start within ($timeout_seconds) s.'
+    } else if ($environment | is-empty) {
+        $'The server of ($session.name) did not start:(char nl)(read-log-tail $log)'
+    } else {
+        $'The environment of ($session.name) did not load:(char nl)(read-log-tail $log)'
+    }
+
+    if $failure != null {
+        fail $failure
     }
 }
 
@@ -85,6 +167,39 @@ def stop-server [name: string, socket: path, force: bool]: nothing -> nothing {
 
         fail $'The server of ($name) did not stop($reason).'
     }
+}
+
+# Return the command that loads the environment of a project, or an empty list.
+export def get-environment-command [path: path]: nothing -> list<string> {
+    if not (get-config).start.environment {
+        return []
+    }
+
+    let loader = if ($path | path join .envrc | path exists) {
+        {
+            tool: direnv
+            file: .envrc
+            command: [direnv exec $path]
+        }
+    } else if ($path | path join devenv.nix | path exists) {
+        {
+            tool: devenv
+            file: devenv.nix
+            command: [devenv shell --]
+        }
+    } else {
+        null
+    }
+
+    if $loader == null {
+        return []
+    }
+
+    if (which $loader.tool | is-empty) {
+        fail $'The project has a ($loader.file), but ($loader.tool) is not on PATH.'
+    }
+
+    $loader.command
 }
 
 # Check whether a server listens on a socket.
@@ -160,6 +275,7 @@ export def stop-session [name: string, --force]: nothing -> nothing {
     }
 
     remove-path $session.socket
+    remove-path (get-log-file $session.socket)
     delete-session $name
 
     print $'Stopped ($name).'

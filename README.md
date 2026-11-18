@@ -12,6 +12,7 @@ For full documentation, see [`:help nsm`](doc/nsm.txt).
 - **Stop and start** — `:Nsm kill` stops a session and offers a force stop when it has unsaved buffers. `:Nsm new` starts a session for a directory.
 - **Scope filter** — limit the picker to one directory with `--scope` or `NSM_SCOPE`.
 - **Session restore** — run a project Vimscript file when a session starts.
+- **Project environment** — start each server inside the direnv or devenv environment of its project.
 
 ## Installation
 
@@ -89,10 +90,13 @@ Set your project roots in `~/.config/.nsm.nuon`:
   projects: ["~/Projects", "/mnt/external/projects"]
   icons: { running: "🟢", stored: "⚫", directory: "📁" }
   restore: { file: "Session.vim" }
+  start: { environment: true, timeout: 300 }
 }
 ```
 
 Omit `projects` to disable repository discovery. `restore.file` runs project Vimscript, so enable it only for trusted projects.
+
+A server starts inside the environment of its project. A `.envrc` loads through `direnv exec`. A `devenv.nix` without a `.envrc` loads through `devenv shell --`. If the environment does not load, `nsm start` fails with the message of the tool, for example to run `direnv allow`. Set `start.environment` to `false` to skip it, and `start.timeout` to change the wait in seconds for a cold environment. While it loads, `nsm start` reports every 5 seconds.
 
 ## Usage
 
@@ -165,6 +169,7 @@ nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add 
 ### Optional
 
 - [zoxide](https://github.com/ajeetdsouza/zoxide) — recent directories in the picker
+- [direnv](https://direnv.net) or [devenv](https://devenv.sh) — the environment of a project that has a `.envrc` or a `devenv.nix`
 
 ## Development
 

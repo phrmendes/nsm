@@ -100,6 +100,7 @@ Create `~/.config/.nsm.nuon`. Every key is optional.
     projects: ["~/Projects", "/mnt/external/projects"]
     icons: { running: "🟢", stored: "⚫", directory: "📁" }
     restore: { file: "Session.vim" }
+    start: { environment: true, timeout: 300 }
   }
 <
 
@@ -108,6 +109,21 @@ Create `~/.config/.nsm.nuon`. Every key is optional.
 - `icons`: the icon of each `source` in |nsm-rows|.
 - `restore.file`: a Vimscript file, relative to the project, that a new
   server runs. It runs project code, so enable it only for trusted projects.
+- `start.environment`: load the environment of the project, see |nsm-environment|.
+- `start.timeout`: the seconds to wait for a server that loads an environment.
+  The default is 300.
+
+Environment ~
+*nsm-environment*
+
+A server starts inside the environment of its project. With a `.envrc`,
+`nsm` runs `direnv exec <directory> nvim`. With a `devenv.nix` and no
+`.envrc`, it runs `devenv shell -- nvim`. Without both files, it runs `nvim`.
+
+If the environment does not load, `nsm start` fails with the message of the
+tool and starts no server. For example, run `direnv allow` for a blocked
+`.envrc`. The output of the start is in `<name>.log`, next to the socket.
+Set `start.environment` to `false` to start every server without it.
 
 Picker rows ~
 *nsm-rows*
@@ -142,6 +158,7 @@ Requirements ~
 - `bash` on `PATH` to start the server
 - `git` on `PATH` to name a session after its repository root
 - `zoxide` on `PATH` for recent directories
+- `direnv` or `devenv` on `PATH` for projects with a `.envrc` or a `devenv.nix`
 
 ------------------------------------------------------------------------------
 Class ~
