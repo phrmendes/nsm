@@ -8,7 +8,7 @@ For full documentation, see [`:help nsm`](doc/nsm.txt).
 
 - **One server per project** — start a headless Neovim for a directory and attach to it later.
 - **Switch in place** — `:Nsm` opens a picker and reattaches the current UI. The terminal stays open.
-- **Session picker** — sessions, the repositories below your project roots, and recent zoxide directories in one list.
+- **Session picker** — sessions, the repositories below your project roots, and recent zoxide directories in one list. The terminal picker opens at once and adds rows as they load. In Neovim, the plugin uses `vim.ui.select`, so your picker plugin shows the list.
 - **Stop and start** — `:Nsm kill` stops a session and offers a force stop when it has unsaved buffers. `:Nsm new` starts a session for a directory.
 - **Scope filter** — limit the picker to one directory with `--scope` or `NSM_SCOPE`.
 - **Session restore** — run a project Vimscript file when a session starts.
@@ -44,12 +44,10 @@ For systems without Nix, install the command into `~/.local/bin` with the instal
 curl -fsSL https://github.com/phrmendes/nsm/releases/latest/download/install.sh | sh
 ```
 
-The script downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf`, `setsid` and `timeout`, so you need Neovim and `git` on the host. It needs `/dev/fuse`. Without it, run `nsm` with `APPIMAGE_EXTRACT_AND_RUN=1`, which is slower.
-
-Each release carries its own version, so this installs `1.0.0`:
+It downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf`, `setsid` and `timeout`, so you need Neovim, `bash` and `git` on the host. To install another version, put its tag in the URL:
 
 ```bash
-curl -fsSL https://github.com/phrmendes/nsm/releases/download/v1.0.0/install.sh | sh
+curl -fsSL https://github.com/phrmendes/nsm/releases/download/vX.Y.Z/install.sh | sh
 ```
 
 ### Plugin
@@ -76,7 +74,7 @@ vim.api.nvim_create_autocmd("PackChanged", {
 })
 ```
 
-The script asks nothing. It also warns when Neovim, `fusermount3`, or `/dev/fuse` is missing. Nix users do not need this hook, because the Nix package already ships the command.
+Nix users do not need this hook, because the Nix package already ships the command.
 
 ## Quick start
 
@@ -89,7 +87,7 @@ Set your project roots in `~/.config/.nsm.nuon`:
 ```nuon
 {
   projects: ["~/Projects", "/mnt/external/projects"]
-  icons: { running: "🟢", busy: "🟡", stored: "⚫", directory: "📁" }
+  icons: { running: "🟢", stored: "⚫", directory: "📁" }
   restore: { file: "Session.vim" }
 }
 ```
@@ -162,7 +160,7 @@ nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add 
 - The `nsm` command: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid` and `timeout`
 - `bash` on `PATH` to start the server
 - `git` on `PATH` to name a session after its repository root. Without `git`, a session takes the directory name
-- `fusermount3` and `/dev/fuse` for the AppImage. Without them, export `APPIMAGE_EXTRACT_AND_RUN=1`
+- `fusermount3` and `/dev/fuse` for the AppImage. Without them, export `APPIMAGE_EXTRACT_AND_RUN=1`, which makes each start slower. The install script warns when they are missing
 
 ### Optional
 
