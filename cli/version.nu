@@ -1,2 +1,2 @@
 # The version of nsm. Commitizen updates it on each release.
-export const VERSION = '1.1.3'
+export const VERSION = '1.2.0'

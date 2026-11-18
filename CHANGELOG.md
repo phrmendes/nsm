@@ -1,3 +1,14 @@
+## v1.2.0 (2026-11-18)
+
+### Features
+
+- **plugin**: show the progress of a slow start
+- **cli**: start each server inside the direnv or devenv environment
+
+### Refactoring
+
+- **cli**: remove comments from the aliases and a blank line from the picker
+
 ## v1.1.3 (2026-11-18)
 
 ### Refactoring
