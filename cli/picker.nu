@@ -177,7 +177,6 @@ export def list-candidates [--exclude: string = '', --sessions, --scope: string 
     ]
 
     $sources
-    | each {|source| do $source }
-    | flatten
+    | each --flatten {|source| do $source }
     | where {|row| in-scope $row.path $scope }
 }
