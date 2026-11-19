@@ -16,13 +16,13 @@ For full documentation, see [`:help nsm`](doc/nsm.txt).
 
 ## Installation
 
-Install the `nsm` command, then the Neovim plugin. The command runs on Linux only.
+Install the `nsm` command, then the Neovim plugin. The command runs on Linux (x86_64) and on macOS 14 or newer (Apple Silicon and Intel).
 
 ### CLI
 
 #### Nix
 
-The flake ships the `nsm` command with `fzf` and `util-linux` on `PATH`:
+The flake ships the `nsm` command with `util-linux` on `PATH`:
 
 ```bash
 nix run github:phrmendes/nsm -- list      # try it
@@ -45,7 +45,7 @@ For systems without Nix, install the command into `~/.local/bin` with the instal
 curl -fsSL https://github.com/phrmendes/nsm/releases/latest/download/install.sh | sh
 ```
 
-It downloads the AppImage of the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The AppImage holds Nushell, `fzf`, `setsid` and `timeout`, so you need Neovim, `bash` and `git` on the host. To install another version, put its tag in the URL:
+It downloads the file of your system from the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The file bundles Nushell, `setsid` and `timeout`, and unpacks them into your cache folder on the first run (`~/.cache/nsm` on Linux, `~/Library/Caches/nsm` on macOS). You need Neovim, `bash` and `git` on the host. To install another version, put its tag in the URL:
 
 ```bash
 curl -fsSL https://github.com/phrmendes/nsm/releases/download/vX.Y.Z/install.sh | sh
@@ -159,12 +159,12 @@ nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add 
 
 ## Requirements
 
-- Linux on x86_64
+- Linux on x86_64, or macOS 14 or newer on Apple Silicon or Intel
 - Neovim 0.12+
-- The `nsm` command: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid` and `timeout`
+- The `nsm` command: the Nix package and the release file bundle Nushell, `setsid` and `timeout`
 - `bash` on `PATH` to start the server
 - `git` on `PATH` to name a session after its repository root. Without `git`, a session takes the directory name
-- `fusermount3` and `/dev/fuse` for the AppImage. Without them, export `APPIMAGE_EXTRACT_AND_RUN=1`, which makes each start slower. The install script warns when they are missing
+- A cache folder that allows programs to run. The release file unpacks Nushell there on the first run
 
 ### Optional
 

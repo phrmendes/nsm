@@ -148,7 +148,7 @@
 --- *nsm-requirements*
 ---
 --- - Linux on x86_64 or macOS 14+ (Apple Silicon or Intel), and Neovim 0.12+
---- - `nsm` on `PATH`: the Nix package, the AppImage, and the macOS tarball bundle Nushell,
+--- - `nsm` on `PATH`: the Nix package and the release file bundle Nushell,
 ---   `setsid`, and `timeout`
 --- - `bash` on `PATH` to start the server
 --- - `git` on `PATH` to name a session after its repository root

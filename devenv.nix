@@ -1,5 +1,7 @@
 { pkgs, ... }:
 {
+  languages.go.enable = true;
+
   languages.lua = {
     enable = true;
     package = pkgs.luajit;
@@ -8,7 +10,6 @@
 
   packages = with pkgs; [
     commitizen
-    fzf
     git
     neovim
     nu-lint
@@ -29,6 +30,7 @@
   git-hooks.hooks = {
     nufmt.enable = true;
     stylua.enable = true;
+    gofmt.enable = true;
     commitizen = {
       enable = true;
       name = "commitizen";

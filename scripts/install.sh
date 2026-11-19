@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install the nsm command from a GitHub release.
+# Install the nsm command from a GitHub release. It supports Linux x86_64 and macOS.
 #
 # Environment:
 #   NSM_BASE_URL     Download base URL (default: the GitHub release of that version)
@@ -7,7 +7,6 @@
 
 set -eu
 
-ASSET=nsm-x86_64.AppImage
 VERSION=latest
 INSTALL_DIR=${NSM_INSTALL_DIR:-$HOME/.local/bin}
 BASE_URL=${NSM_BASE_URL:-}
@@ -31,8 +30,15 @@ download() {
     fi
 }
 
-[ "$(uname -s)" = Linux ] || fail 'nsm runs on Linux only.'
-[ "$(uname -m)" = x86_64 ] || fail 'nsm needs an x86_64 machine.'
+system=$(uname -s)
+machine=$(uname -m)
+
+case "$system-$machine" in
+Linux-x86_64) ASSET=nsm-linux-x86_64 ;;
+Darwin-arm64) ASSET=nsm-darwin-arm64 ;;
+Darwin-x86_64) ASSET=nsm-darwin-x86_64 ;;
+*) fail "nsm does not support $system on $machine." ;;
+esac
 
 if [ "$BASE_URL" = "" ]; then
     BASE_URL="https://github.com/phrmendes/nsm/releases"
@@ -50,14 +56,19 @@ printf 'nsm: downloading %s\n' "$BASE_URL/$ASSET"
 download "$BASE_URL/$ASSET" "$temporary/$ASSET"
 download "$BASE_URL/$ASSET.sha256" "$temporary/$ASSET.sha256"
 
-command -v sha256sum >/dev/null 2>&1 || fail 'Install coreutils for sha256sum.'
+if command -v sha256sum >/dev/null 2>&1; then
+    check="sha256sum -c"
+else
+    check="shasum -a 256 -c"
+fi
 
-if ! (cd "$temporary" && sha256sum -c "$ASSET.sha256" >/dev/null 2>&1); then
+if ! (cd "$temporary" && $check "$ASSET.sha256" >/dev/null 2>&1); then
     fail 'The checksum does not match. The download is broken, or someone replaced it.'
 fi
 
 mkdir -p "$INSTALL_DIR"
 install -m 755 "$temporary/$ASSET" "$INSTALL_DIR/nsm"
+
 printf 'nsm: installed %s\n' "$INSTALL_DIR/nsm"
 
 case ":$PATH:" in
@@ -69,7 +80,3 @@ command -v nvim >/dev/null 2>&1 || note 'Neovim is not on PATH. Install Neovim 0
 
 command -v git >/dev/null 2>&1 || note 'git is not on PATH. Sessions take the directory name, not the repository name.'
 
-missing=
-command -v fusermount3 >/dev/null 2>&1 || missing=fusermount3
-[ -e /dev/fuse ] || missing=${missing:+$missing and }/dev/fuse
-[ -z "$missing" ] || note "There is no $missing. Export APPIMAGE_EXTRACT_AND_RUN=1 before you run nsm."

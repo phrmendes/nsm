@@ -3,42 +3,40 @@
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 
-  inputs.nix-appimage = {
-    url = "github:ralismark/nix-appimage";
-    inputs.nixpkgs.follows = "nixpkgs";
-  };
-
   outputs =
-    {
-      self,
-      nixpkgs,
-      nix-appimage,
-    }:
+    { self, nixpkgs }:
     let
-      systems = [ "x86_64-linux" ];
+      systems = [
+        "x86_64-linux"
+        "aarch64-darwin"
+      ];
+      versions = import ./nix/versions.nix;
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
       perSystem =
         system:
         let
           pkgs = import nixpkgs { inherit system; };
-          appimage = pkgs.callPackage ./nix/appimage.nix {
-            root = self;
-            runtime = nix-appimage.appimage-runtimes.${system}.appimage-type2-runtime;
-          };
           outputs = import ./nix/lib.nix {
             inherit pkgs;
             root = self;
           };
+          launchers = pkgs.lib.optionalAttrs pkgs.stdenv.hostPlatform.isLinux (
+            pkgs.lib.mapAttrs' (name: package: pkgs.lib.nameValuePair "nsm-${name}" package) (
+              pkgs.callPackage ./nix/launcher.nix {
+                root = self;
+                inherit versions;
+              }
+            )
+          );
         in
         {
           packages = {
             default = outputs.packages.nsm;
             nsm = outputs.packages.nsm;
             neovim-plugin = outputs.packages.neovimPlugin;
-            nsm-appdir = appimage.appdir;
-            nsm-appimage = appimage.image;
-          };
+          }
+          // launchers;
 
           apps.default = {
             type = "app";

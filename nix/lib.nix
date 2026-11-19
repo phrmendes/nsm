@@ -17,10 +17,10 @@ in
         let
           binPath =
             with pkgs;
-            lib.makeBinPath [
-              fzf
-              util-linuxMinimal
-            ];
+            lib.makeBinPath (
+              [ util-linuxMinimal ]
+              ++ lib.optional stdenv.hostPlatform.isDarwin coreutils
+            );
         in
         ''
           #!${pkgs.coreutils}/bin/env -S NU_LIB_DIRS=${root}/cli ${lib.getExe pkgs.nushell} --no-config-file

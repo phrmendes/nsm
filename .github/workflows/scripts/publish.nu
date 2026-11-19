@@ -1,16 +1,17 @@
 #!/usr/bin/env nu
 
-const IMAGE = 'nsm-x86_64.AppImage'
+const ASSETS = [nsm-linux-x86_64 nsm-darwin-arm64 nsm-darwin-x86_64]
 
 if (gh release view $env.TAG | complete).exit_code == 0 {
-    print 'The release already exists.'
+    print --stderr 'The release already exists.'
     exit 0
 }
 
-nix build '.#nsm-appimage'
-cp result $IMAGE
-
-$'(open --raw $IMAGE | hash sha256)  ($IMAGE)(char nl)' | save --force $'($IMAGE).sha256'
+for asset in $ASSETS {
+    nix build $'.#($asset)' --out-link result
+    cp --force result $asset
+    $'(open --raw $asset | hash sha256)  ($asset)(char nl)' | save --force $'($asset).sha256'
+}
 
 let scripts = $env.CURRENT_FILE | path dirname
 
@@ -25,7 +26,7 @@ nu ($scripts | path join get-notes.nu) | save --force notes.md
         --verify-tag
         --title $env.TAG
         --notes-file notes.md
-        $IMAGE
-        $'($IMAGE).sha256'
+        ...$ASSETS
+        ...($ASSETS | each {|asset| $'($asset).sha256' })
         install.sh
 )
