@@ -67,7 +67,7 @@ def kill-one [target: string, force: bool]: nothing -> nothing {
 }
 
 # Return the `main` commands of this file with their short forms and parameters.
-def get-commands []: nothing -> table<name: string, short: oneof<string, nothing>, summary: string, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>> {
+def get-commands []: nothing -> table<name: string, short: oneof<string, nothing>, parameters: list<record<name: string, kind: string, shape: oneof<string, nothing>, short: oneof<string, nothing>, optional: bool>>> {
     let aliases = scope aliases | where {|alias| $alias.name starts-with 'main ' }
 
     scope commands
@@ -78,7 +78,6 @@ def get-commands []: nothing -> table<name: string, short: oneof<string, nothing
         {
             name: ($command.name | str replace 'main ' '')
             short: ($short | if $in == null { null } else { str replace 'main ' '' })
-            summary: ($command.description | str replace --regex '\.$' '')
             parameters: (
                 $command.signatures
                 | values
@@ -268,19 +267,13 @@ def "main completions" [
     }
 }
 
-# Print the subcommands of nsm, or the version with `--version`.
+# Print the version with `--version`.
 def main [
     --version (-v) # Print the version
 ]: nothing -> nothing {
     if $version {
         print $'nsm ($VERSION)'
-        return
     }
-
-    get-commands
-    | each {|command| $"  ($command.name)  ($command.summary)" }
-    | str join (char nl)
-    | print
 }
 
 alias "main s" = main switch
