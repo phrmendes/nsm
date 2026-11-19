@@ -7,4 +7,8 @@ def main []: nothing -> nothing {
 
     print '🧪 Running the Lua tests...'
     nvim --headless --noplugin -u ($root | path join scripts/init.lua) -c 'lua MiniTest.run()' -c 'qa!'
+
+    print '🧪 Checking the Go launcher...'
+    cd ($root | path join launcher)
+    go vet ./...
 }
