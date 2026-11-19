@@ -1,3 +1,19 @@
+## v1.3.0 (2026-11-19)
+
+### Features
+
+- ship one Go launcher for every platform ([1f428f0](https://github.com/phrmendes/nsm/commit/1f428f0f09e9fb0e278e725a214c0616000d3620))
+- **cli**: support macOS ([8325f9d](https://github.com/phrmendes/nsm/commit/8325f9d148ed47c9fce4e2db240628aea389dadf))
+
+### Fixes
+
+- **cli**: detect a live server on macOS with a connection ([6b8ba5d](https://github.com/phrmendes/nsm/commit/6b8ba5d04da562e6eba48d0fe16c979b92779689))
+
+### Refactoring
+
+- **launcher**: document the functions and drop the Go tests ([627d846](https://github.com/phrmendes/nsm/commit/627d8469242a4b84cb3f115433616403b5abe3af))
+- **cli**: replace fzf with the built-in fuzzy list ([6dc28ad](https://github.com/phrmendes/nsm/commit/6dc28ad9da430f913ce34897b6e4da3b4d59d35f))
+
 ## v1.2.1 (2026-11-18)
 
 ### Fixes
