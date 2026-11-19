@@ -167,8 +167,9 @@ def is-running [pid: int]: nothing -> bool {
     }
 }
 
-# Send a signal to a server, and wait until its process ends.
+# Send a signal to a server, and wait until its process ends. A stopped process gets CONT first, because it handles no signal.
 def signal-server [pid: int, signal: string]: nothing -> bool {
+    ^kill -s CONT $pid | complete | ignore
     ^kill -s $signal $pid | complete | ignore
 
     wait-until --attempts $SIGNAL_ATTEMPTS { not (is-running $pid) }
