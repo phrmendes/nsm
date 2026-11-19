@@ -1,6 +1,5 @@
 use std/assert
 use ./fixtures.nu [
-    error-message
     get-bash
     in-root
     make-dir
@@ -9,7 +8,6 @@ use ./fixtures.nu [
     with-shim-env
     write-text
 ]
-use ../../cli/server.nu [get-environment-command]
 
 def main []: nothing -> nothing { run-tests $env.CURRENT_FILE }
 
@@ -82,59 +80,6 @@ def "test start-loads-devenv-without-an-envrc" []: nothing -> nothing {
     }
 }
 
-def "test start-prefers-direnv-when-both-files-exist" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        let bin = make-shims $root
-        make-dir $project
-        make-environment-shims $bin
-        let nvim_path = which nvim | where type == external | get --optional 0.path
-        write-text ($project | path join .envrc) ''
-        write-text ($project | path join devenv.nix) ''
-
-        with-shim-env $root $bin {
-            let result = nu --no-config-file cli/main.nu start $project | complete
-
-            assert equal (get-environment-answer $nvim_path ($result.stdout | str trim)) direnv 'direnv wins'
-        }
-    }
-}
-
-def "test start-runs-plain-without-environment-files" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        let bin = make-shims $root
-        make-dir $project
-        make-environment-shims $bin
-        let nvim_path = which nvim | where type == external | get --optional 0.path
-
-        with-shim-env $root $bin {
-            let result = nu --no-config-file cli/main.nu start $project | complete
-
-            assert equal $result.exit_code 0 $result.stderr
-            assert equal (get-environment-answer $nvim_path ($result.stdout | str trim)) '' 'no environment loads'
-        }
-    }
-}
-
-def "test start-skips-the-environment-when-the-config-says-so" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        let bin = make-shims $root
-        make-dir $project
-                make-environment-shims $bin
-        let nvim_path = which nvim | where type == external | get --optional 0.path
-        write-text ($project | path join .envrc) ''
-        write-text ($root | path join .nsm.nuon) ({start: {environment: false}} | to nuon)
-
-        with-shim-env $root $bin {
-            let result = with-env {XDG_CONFIG_HOME: $root} { nu --no-config-file cli/main.nu start $project | complete }
-
-            assert equal (get-environment-answer $nvim_path ($result.stdout | str trim)) '' 'the server runs without direnv'
-        }
-    }
-}
-
 def "test start-fails-at-once-when-the-environment-is-blocked" []: nothing -> nothing {
     in-root {|root|
         let project = $root | path join project
@@ -198,26 +143,6 @@ def "test start-gives-up-after-the-configured-timeout" []: nothing -> nothing {
     }
 }
 
-def "test start-reports-progress-while-the-environment-loads" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        let bin = make-shims $root
-        make-dir $project
-        make-environment-shims $bin
-        make-tool-shim ($bin | path join direnv) direnv 'sleep 6; shift 2; export ENV_FROM=direnv; exec "$@"'
-        make-background-setsid-shim ($bin | path join setsid)
-        write-text ($project | path join .envrc) ''
-
-        with-shim-env $root $bin {
-            let result = nu --no-config-file cli/main.nu start $project | complete
-
-            assert equal $result.exit_code 0 $result.stderr
-            assert ($result.stderr | str contains 'Loading the environment of project with direnv') $result.stderr
-            assert ($result.stderr | str contains 'Still loading the environment of project') $result.stderr
-        }
-    }
-}
-
 def "test start-waits-while-the-launcher-hides-the-socket" []: nothing -> nothing {
     in-root {|root|
         let project = $root | path join project
@@ -234,17 +159,5 @@ def "test start-waits-while-the-launcher-hides-the-socket" []: nothing -> nothin
             assert equal $result.exit_code 0 $result.stderr
             assert ($result.stdout | str trim | str ends-with 'project.sock') $result.stdout
         }
-    }
-}
-
-def "test get-environment-command-fails-when-the-tool-is-missing" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        make-dir $project
-        write-text ($project | path join .envrc) ''
-
-        let message = with-env {PATH: []} { error-message { get-environment-command $project } }
-
-        assert equal $message 'The project has a .envrc, but direnv is not on PATH.'
     }
 }

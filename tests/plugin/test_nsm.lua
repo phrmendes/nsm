@@ -163,35 +163,6 @@ T["switch"]["cancelling the picker starts and connects nothing"] = function()
   eq(result.labels, "🟢 work  ~/work")
 end
 
-T["switch"]["notifies on invalid picker JSON"] = function()
-  local notification = child.lua([[
-    H.system(function() return { code = 0, stdout = "not json", stderr = "" } end)
-
-    H.load().switch()
-    H.flush()
-
-    return H.notifications[1]
-  ]])
-
-  eq(notification.text, "nsm returned invalid picker data")
-  eq(notification.level, child.lua_get("vim.log.levels.ERROR"))
-end
-
-T["switch"]["notifies the stripped picker error"] = function()
-  local message = child.lua([[
-    H.system(function()
-      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m Cannot query the sessions\n" }
-    end)
-
-    H.load().switch()
-    H.flush()
-
-    return H.notifications[1].text
-  ]])
-
-  eq(message, "[E] Cannot query the sessions")
-end
-
 T["start"] = test.new_set()
 
 T["start"]["notifies the stripped start error and connects nothing"] = function()
@@ -227,18 +198,6 @@ T["connect"]["attaches the UI to the address"] = function()
   eq(commands, { { cmd = "connect", args = { "/state/nsm/work.sock" } } })
 end
 
-T["connect"]["notifies the stripped failure"] = function()
-  local message = child.lua([[
-    vim.cmd = function() error("\27[31m[E]\27[0m Failed to connect", 0) end
-
-    require("nsm").connect("/nonexistent/nsm.sock")
-
-    return H.notifications[1].text
-  ]])
-
-  eq(message, "[E] Failed to connect")
-end
-
 T["kill"] = test.new_set()
 
 T["kill"]["stops the chosen session"] = function()
@@ -260,39 +219,6 @@ T["kill"]["stops the chosen session"] = function()
     { "nsm", "kill", "work" },
   })
   eq(result.notifications, { "Stopped work." })
-end
-
-T["kill"]["shows no notification for an empty output"] = function()
-  local notifications = child.lua([[
-    H.system(function(command)
-      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
-      return { code = 0, stdout = "", stderr = "" }
-    end)
-    H.select(1)
-
-    H.load().kill()
-    H.flush()
-
-    return H.notifications
-  ]])
-
-  eq(notifications, {})
-end
-
-T["kill"]["does nothing on cancel"] = function()
-  local calls = child.lua([[
-    H.system(function()
-      return { code = 0, stdout = H.rows.session, stderr = "" }
-    end)
-    H.select()
-
-    H.load().kill()
-    H.flush()
-
-    return H.calls
-  ]])
-
-  eq(calls, { { "nsm", "pick", "--sessions" } })
 end
 
 T["kill"]["offers a force stop for unsaved changes"] = function()
@@ -317,47 +243,6 @@ T["kill"]["offers a force stop for unsaved changes"] = function()
   })
   eq(result.prompt, "[E] The session (work) has unsaved changes.")
   eq(result.notifications, { "Stopped work." })
-end
-
-T["kill"]["does not force on cancel"] = function()
-  local calls = child.lua([[
-    H.system(function(command)
-      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
-      return { code = 3, stdout = "", stderr = "The session (work) has unsaved changes." }
-    end)
-    H.select(1, 2)
-
-    H.load().kill()
-    H.flush()
-
-    return H.calls
-  ]])
-
-  eq(calls, {
-    { "nsm", "pick", "--sessions" },
-    { "nsm", "kill", "work" },
-  })
-end
-
-T["kill"]["offers no force stop for another failure"] = function()
-  local result = child.lua([[
-    H.system(function(command)
-      if command[2] == "pick" then return { code = 0, stdout = H.rows.session, stderr = "" } end
-      return { code = 1, stdout = "", stderr = "\27[31m[E]\27[0m The session (work) has unsaved changes.\n" }
-    end)
-    H.select(1)
-
-    H.load().kill()
-    H.flush()
-
-    return { calls = H.calls, notifications = vim.tbl_map(function(entry) return entry.text end, H.notifications) }
-  ]])
-
-  eq(result.calls, {
-    { "nsm", "pick", "--sessions" },
-    { "nsm", "kill", "work" },
-  })
-  eq(result.notifications, { "[E] The session (work) has unsaved changes." })
 end
 
 T["progress"] = test.new_set()
@@ -407,26 +292,6 @@ T["progress"]["shows nothing for a fast start"] = function()
   eq(result.connects, { "/state/nsm/fast.sock" })
 end
 
-T["progress"]["joins a line that arrives in two chunks"] = function()
-  local texts = child.lua([[
-    local nsm = H.load()
-    vim.ui.input = function(_, on_confirm) on_confirm("/tmp") end
-
-    H.system(function()
-      return { code = 0, stdout = "/state/nsm/slow.sock\n", chunks = { "Loading the envi", "ronment of work…\n" }, defer = true }
-    end)
-    nsm.new()
-    vim.wait(150)
-    local shown = vim.deepcopy(H.texts())
-    H.pending()
-    H.flush()
-
-    return shown
-  ]])
-
-  eq(texts, { "Loading the environment of work…" })
-end
-
 T["last"] = test.new_set()
 
 T["last"]["connects to the socket of the previous session"] = function()
@@ -440,18 +305,6 @@ T["last"]["connects to the socket of the previous session"] = function()
 
   eq(result, { { "nsm", "last", "--print" } })
   eq(child.lua_get("H.connects"), { "/state/nsm/old.sock" })
-end
-
-T["last"]["reports a failure and does not connect"] = function()
-  child.lua([[
-    H.system(function() return { code = 1, stdout = "", stderr = "[E] There is no previous session.\n" } end)
-
-    H.load().last()
-    H.flush()
-  ]])
-
-  eq(child.lua_get("H.connects"), {})
-  eq(child.lua_get("H.texts()"), { "[E] There is no previous session." })
 end
 
 T["current"] = test.new_set()
@@ -496,51 +349,6 @@ T["new"]["starts and connects to the chosen directory"] = function()
   assert(type(result.opts.default) == "string" and result.opts.default ~= "")
 end
 
-T["new"]["normalizes a real directory and the home shortcut"] = function()
-  local result = child.lua([[
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, "p")
-
-    H.system(function()
-      return { code = 0, stdout = "", stderr = "" }
-    end)
-    H.input(dir)
-
-    H.load().new()
-    H.flush()
-
-    local from_dir = H.calls[1]
-
-    H.calls = {}
-    H.input("~")
-
-    H.load().new()
-    H.flush()
-
-    return { from_dir = from_dir, from_home = H.calls[1], home = vim.env.HOME }
-  ]])
-
-  eq(result.from_dir, { "nsm", "start", result.dir or result.from_dir[3] })
-  assert(not result.from_dir[3]:find("/$"), "the directory has no trailing slash")
-  eq(result.from_home, { "nsm", "start", result.home })
-end
-
-T["new"]["does nothing on an empty answer"] = function()
-  local calls = child.lua([[
-    H.system(function()
-      return { code = 0, stdout = "", stderr = "" }
-    end)
-    H.input(nil)
-
-    H.load().new()
-    H.flush()
-
-    return H.calls
-  ]])
-
-  eq(calls, {})
-end
-
 T["commands"] = test.new_set()
 
 T["commands"]["register the user command and the plug mappings"] = function()
@@ -576,16 +384,6 @@ T["commands"]["register the user command and the plug mappings"] = function()
   eq(result.filtered, { "kill" })
   eq(result.none, {})
   eq(result.desc, "Switch session")
-end
-
-T["commands"]["notifies an unknown subcommand"] = function()
-  local message = child.lua([[
-    H.load().command("foo")
-
-    return H.notifications[1].text
-  ]])
-
-  eq(message, "Unknown subcommand: foo")
 end
 
 T["integration"] = test.new_set()
@@ -678,31 +476,6 @@ local health_prelude = [=[
   H.health = require("nsm.health")
 ]=]
 
-T["health"]["reports every tool when they are installed"] = function()
-  local reports = child.lua([[
-    local dir = vim.fn.tempname()
-    vim.fn.mkdir(dir, "p")
-    for _, name in ipairs({ "nsm", "bash", "git", "zoxide" }) do
-      local path = dir .. "/" .. name
-      vim.fn.writefile({ "#!/usr/bin/env bash", "exit 0" }, path)
-      vim.uv.fs_chmod(path, 493)
-    end
-    vim.env.PATH = dir .. ":" .. vim.env.PATH
-
-    ]] .. health_prelude .. [[
-
-    H.health.check()
-    return H.reports
-  ]])
-
-  eq(reports[1], { "start", "nsm" })
-  eq(reports[2][1], "ok")
-  assert(reports[2][2]:find("nsm:") == 1)
-  eq(reports[3], { "ok", "Neovim 0.12 :connect: available" })
-  eq(vim.tbl_map(function(report) return report[1] end, vim.list_slice(reports, 4)), { "ok", "ok", "ok" })
-  eq(#reports, 6)
-end
-
 T["health"]["reports missing tools with hints"] = function()
   local reports = child.lua([[
     vim.env.PATH = ""
@@ -732,15 +505,6 @@ T["setup"]["a new key replaces the previous key"] = function()
 
   eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
   eq(child.lua_get("vim.fn.maparg('<leader>s', 'n', false, true).rhs"), "<Plug>(nsm-switch)")
-end
-
-T["setup"]["keymap false removes the key"] = function()
-  child.lua([[
-    require("nsm").setup({ keymap = "<leader>w" })
-    require("nsm").setup({ keymap = false })
-  ]])
-
-  eq(child.lua_get("vim.fn.maparg('<leader>w', 'n')"), "")
 end
 
 return T

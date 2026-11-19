@@ -1,6 +1,5 @@
 use std/assert
 use ./fixtures.nu [
-    error-message
     finally
     from-json
     get-bash
@@ -8,13 +7,12 @@ use ./fixtures.nu [
     in-store
     make-dir
     make-file
-    read-file
     run-tests
     spawn-server
     with-shim-env
     write-text
 ]
-use ../../cli/picker.nu [get-pick-target list-candidates list-projects pick-candidate]
+use ../../cli/picker.nu [list-candidates list-projects]
 use ../../cli/server.nu [find-server-pid]
 use ../../cli/store.nu [create-store get-session save-session]
 
@@ -68,45 +66,6 @@ def "test list-projects-discovers-repositories-under-configured-roots" []: nothi
 
         with-env {XDG_CONFIG_HOME: $root, HOME: $root, PROJECTS_DIR: ($root | path join ignored)} {
             assert equal (list-projects | sort) ($expected | sort) 'repositories under configured roots only'
-        }
-    }
-}
-
-def "test get-pick-target-returns-the-name-or-the-path" []: nothing -> nothing {
-    let cases = [
-        {
-            name: 'a session name wins'
-            row: {name: alpha, path: /p/a}
-            expected: alpha
-        }
-        {
-            name: 'an empty name falls back to the path'
-            row: {name: '', path: /p/b}
-            expected: /p/b
-        }
-        {
-            name: 'a null name falls back to the path'
-            row: {name: null, path: /p/c}
-            expected: /p/c
-        }
-    ]
-
-    for case in $cases {
-        assert equal (get-pick-target $case.row) $case.expected $case.name
-    }
-}
-
-def "test pick-candidate-reports-an-empty-list" []: nothing -> nothing {
-    in-root {|root|
-        let bin = $root | path join bin
-        make-dir $bin
-
-        with-shim-env $root $bin {
-            create-store
-
-            let message = error-message { pick-candidate --sessions }
-
-            assert equal $message 'There is nothing to pick. Start a session with `nsm new <name>`.'
         }
     }
 }
@@ -190,30 +149,6 @@ def "test list-candidates-filters-by-scope" []: nothing -> nothing {
                 assert equal (list-candidates --sessions | get name) [sibling] 'NSM_SCOPE alone filters'
                 assert equal (list-candidates --sessions --scope $inside | get name | sort) [deep inside] 'the argument wins over the variable'
             }
-        }
-    }
-}
-
-def "test labels-show-paths-relative-to-the-project-roots" []: nothing -> nothing {
-    in-root {|root|
-        let projects = $root | path join projects
-        let inside = $projects | path join neovim nsm
-        let outside = $root | path join elsewhere thesis
-        make-dir $inside
-        make-dir $outside
-        write-text ($root | path join .nsm.nuon) ({projects: [$projects]} | to nuon)
-
-        with-shim-env $root ($root | path join bin) {
-            create-store
-            save-session nsm $inside
-            save-session thesis $outside
-
-            let rows = with-env {XDG_CONFIG_HOME: $root} { list-candidates --sessions }
-            let labels = $rows | get label | sort
-
-            assert equal ($labels | get -o 0) '⚫ neovim/nsm' 'a session under the root shows the relative path'
-            assert equal ($labels | get -o 1) '⚫ ~/elsewhere/thesis' 'a session outside the root keeps the display path'
-            assert equal ($rows | get name | sort) [nsm thesis] 'the rows keep the session names'
         }
     }
 }

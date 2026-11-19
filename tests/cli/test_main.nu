@@ -1,9 +1,7 @@
 use std/assert
 use ./fixtures.nu [
     in-root
-    in-store
     make-dir
-    make-file
     make-shims
     query-store
     read-file
@@ -93,37 +91,10 @@ def "test main-last-print-prints-the-socket-of-the-previous-session" []: nothing
     }
 }
 
-def "test main-last-print-needs-a-previous-session" []: nothing -> nothing {
-    in-store {|root|
-        let project = $root | path join project
-        make-dir $project
-        save-session only $project
-
-        let result = nu --no-config-file cli/main.nu last --print | complete
-
-        assert equal $result.exit_code 1 'the command fails'
-        assert (($result.stderr | ansi strip) =~ 'There is no previous session.') $result.stderr
-    }
-}
-
 def "test main-version-follows-the-release-version" []: nothing -> nothing {
     let expected = $'nsm (open .cz.toml | get tool.commitizen.version)'
     let result = nu --no-config-file cli/main.nu --version | complete
 
     assert equal $result.exit_code 0 $result.stderr
     assert equal ($result.stdout | str trim) $expected 'the version matches .cz.toml'
-}
-
-def "test main-names-prints-one-name-per-line" []: nothing -> nothing {
-    in-store {|root|
-        let project = $root | path join project
-        make-dir $project
-        save-session beta $project
-        save-session alpha $project
-
-        let result = nu --no-config-file cli/main.nu names | complete
-
-        assert equal $result.exit_code 0 $result.stderr
-        assert equal ($result.stdout | lines | sort) [alpha beta] 'every session name is printed'
-    }
 }

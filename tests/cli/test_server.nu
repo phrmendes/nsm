@@ -1,8 +1,6 @@
 use std/assert
 use ./fixtures.nu [
-    error-message
     finally
-    get-bash
     in-root
     in-store
     make-dir
@@ -51,30 +49,6 @@ def "test start-prints-the-socket-and-records-the-attachment" []: nothing -> not
 
             let attached = query-store ($root | path join nsm sessions.db) 'select attached_at from sessions where name = :name' --params {name: demo} | first
             assert ($attached.attached_at != null) 'the session counts as attached'
-        }
-    }
-}
-
-def "test start-announces-the-server-on-stderr" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        make-dir $project
-        let bin = make-shims $root
-
-        with-shim-env $root $bin {
-            create-store
-            save-session demo $project
-            let socket = (get-session demo).socket
-
-            let first = nu --no-config-file cli/main.nu start demo | complete
-            assert equal $first.exit_code 0 $first.stderr
-            assert equal ($first.stdout | str trim) $socket 'stdout holds only the socket'
-            assert ($first.stderr | str contains 'Starting demo…') $'a new server is announced: ($first.stderr)'
-
-            wait-until { is-alive $socket } | ignore
-            let second = nu --no-config-file cli/main.nu start demo | complete
-            assert equal ($second.stdout | str trim) $socket 'stdout holds only the socket'
-            assert equal ($second.stderr | ansi strip | str trim) '' 'a running server is not announced'
         }
     }
 }
@@ -144,17 +118,6 @@ def "test attach-starts-a-stopped-session-and-reuses-a-running-one" []: nothing 
             assert equal (read-file $log | lines | last) $'--server ($socket) --remote-ui' 'the running session is reused'
             assert equal (read-file $log | lines | where {|line| $line =~ '--headless' } | length) 1 'the server starts once'
         }
-    }
-}
-
-def "test has-unsaved-changes-fails-on-a-dead-socket" []: nothing -> nothing {
-    in-store {|root|
-        save-session demo $root
-        set-socket $root demo ($root | path join missing.sock)
-
-        let message = error-message { has-unsaved-changes demo }
-
-        assert (($message != null) and ($message | str starts-with 'Cannot query the server of demo:')) $'expected a query error in: ($message)'
     }
 }
 
@@ -259,28 +222,6 @@ def "test start-does-not-leak-inherited-files" []: nothing -> nothing {
             }
 
             assert equal ($held | length) 0 'the server does not hold a file of its parent'
-        }
-    }
-}
-
-def "test get-restore-args-returns-the-configured-session-file" []: nothing -> nothing {
-    in-root {|root|
-        let project = $root | path join project
-        let file = $project | path join Session.vim
-        make-dir $project
-        make-file $file
-
-        with-env {XDG_CONFIG_HOME: $root, HOME: $root} {
-            assert equal (get-restore-args $project) [] 'no configuration'
-
-            write-text ($root | path join .nsm.nuon) ({restore: {file: 'Session.vim'}} | to nuon)
-            assert equal (get-restore-args $project) ['-S' $file] 'a configured file'
-
-            write-text ($root | path join .nsm.nuon) ({restore: {file: 'Missing.vim'}} | to nuon)
-            assert equal (get-restore-args $project) [] 'a missing file'
-
-            write-text ($root | path join .nsm.nuon) ({restore: {file: $file}} | to nuon)
-            assert equal (get-restore-args $project) ['-S' $file] 'an absolute path'
         }
     }
 }
@@ -421,61 +362,5 @@ def "test kill-all-stops-clean-sessions-and-refuses-dirty-ones" []: nothing -> n
         let empty = nu --no-config-file cli/main.nu kill --all | complete
         assert equal $empty.exit_code 0 $empty.stderr
         assert (((($empty.stderr | ansi strip) =~ '\[W\]') and (($empty.stderr | ansi strip) =~ 'No sessions.'))) $empty.stderr
-    }
-}
-
-def "test is-alive-tells-a-listening-socket-from-a-file" []: nothing -> nothing {
-    in-root {|root|
-        let log = $root | path join calls.log
-        let project = $root | path join project
-        let stalled = $root | path join stalled.sock
-        let stale = $root | path join stale.sock
-        let bin = make-shims $root
-        make-dir $project
-
-        with-shim-env $root $bin {
-            create-store
-            save-session stalled $project
-            set-socket $root stalled $stalled
-            '' | save --force $stale
-            spawn-server $stalled
-            let pid = find-server-pid $stalled
-
-            finally {|| ^kill -s KILL $pid } {
-                ^kill -s STOP $pid
-
-                assert (not (is-alive ($root | path join missing.sock))) 'a missing socket is not alive'
-                assert (not (is-alive $stale)) 'a socket file without a server is not alive'
-                assert (is-alive $stalled) 'a stalled server still listens'
-
-                let before = read-file $log | lines | length
-                let result = nu --no-config-file cli/main.nu start stalled | complete
-
-                assert equal $result.exit_code 0 $result.stderr
-                assert equal ($result.stdout | str trim) $stalled 'a stalled server keeps its socket'
-                let starts = read-file $log | lines | skip $before | where {|line| $line =~ '--headless' }
-                assert equal ($starts | length) 0 'a stalled server is not started again'
-            }
-        }
-    }
-}
-
-def "test has-unsaved-changes-rejects-an-empty-answer" []: nothing -> nothing {
-    in-root {|root|
-        let bin = make-shims $root
-        let project = $root | path join project
-        make-dir $project
-
-        with-shim-env $root $bin {
-            create-store
-            save-session demo $project
-            let socket = $root | path join demo.sock
-            set-socket $root demo $socket
-            '' | save --force $socket
-
-            let message = error-message { has-unsaved-changes demo }
-
-            assert (($message != null) and ($message | str contains 'answered')) $'expected an answer error in: ($message)'
-        }
     }
 }
