@@ -2,8 +2,18 @@ name: release
 
 on:
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - LICENSE
+      - doc/**
+      - .github/dependabot.yaml
   push:
     branches: [main]
+    paths-ignore:
+      - "**.md"
+      - LICENSE
+      - doc/**
+      - .github/dependabot.yaml
   workflow_dispatch:
 
 permissions: {}
