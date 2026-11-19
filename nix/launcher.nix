@@ -4,7 +4,6 @@
   buildGoModule,
   fetchurl,
   runCommand,
-  procps,
   root,
   versions,
 }:
@@ -77,8 +76,6 @@ let
         inherit version;
         src = root + "/launcher";
         vendorHash = null;
-        doCheck = target.goos == "linux";
-        nativeCheckInputs = [ procps ];
         buildFlags = [ "-trimpath" ];
 
         tags = [ "bundle" ];

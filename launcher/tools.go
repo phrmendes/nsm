@@ -107,11 +107,14 @@ func runTimeout(args []string) int {
 
 // parseDuration reads seconds, with an optional s, m, h, or d suffix.
 func parseDuration(text string) (time.Duration, error) {
+	units := map[byte]time.Duration{'s': time.Second, 'm': time.Minute, 'h': time.Hour, 'd': 24 * time.Hour}
 	unit := time.Second
 
-	if last := text[len(text)-1:]; strings.Contains("smhd", last) {
-		unit = map[string]time.Duration{"s": time.Second, "m": time.Minute, "h": time.Hour, "d": 24 * time.Hour}[last]
-		text = text[:len(text)-1]
+	if text != "" {
+		if suffix, found := units[text[len(text)-1]]; found {
+			unit = suffix
+			text = text[:len(text)-1]
+		}
 	}
 
 	value, err := strconv.ParseFloat(text, 64)

@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-// staleAfter is the age after which an unfinished unpack folder counts as abandoned.
 const staleAfter = time.Hour
 
 // unpack extracts the tar.gz bundle into root/id through a temporary folder, so a reader sees all of it or none of it.
@@ -29,7 +28,7 @@ func unpack(bundle io.Reader, root, id string) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(temporary)
+	defer func() { _ = os.RemoveAll(temporary) }()
 
 	if err := extract(bundle, temporary); err != nil {
 		return err
@@ -53,7 +52,7 @@ func extract(bundle io.Reader, folder string) error {
 	if err != nil {
 		return err
 	}
-	defer zipped.Close()
+	defer func() { _ = zipped.Close() }()
 
 	reader := tar.NewReader(zipped)
 
@@ -114,6 +113,7 @@ func ensureSafeRoot(root string, uid int) error {
 	return nil
 }
 
+// writeFile writes a file with a mode, and creates its folder.
 func writeFile(path string, source io.Reader, mode os.FileMode) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
@@ -125,7 +125,7 @@ func writeFile(path string, source io.Reader, mode os.FileMode) error {
 	}
 
 	if _, err := io.Copy(file, source); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 

@@ -1,7 +1,3 @@
-// Command nsm unpacks its bundle (Nushell and the nsm scripts) once, and runs it.
-//
-// The same file also acts as `setsid` and `timeout`, chosen from the name that
-// started it, so the bundle needs no other tool.
 package main
 
 import (
@@ -14,25 +10,9 @@ import (
 	"syscall"
 )
 
-// bundleID names the folder of the unpacked bundle. The build sets it.
 var bundleID = "dev"
 
-// tools are the names that the unpacked bin folder links to this file.
 var tools = []string{"setsid", "timeout"}
-
-func main() {
-	switch filepath.Base(os.Args[0]) {
-	case "setsid":
-		os.Exit(runSetsid(os.Args[1:]))
-	case "timeout":
-		os.Exit(runTimeout(os.Args[1:]))
-	}
-
-	if err := launch(bundle, bundleID, os.Args[1:]); err != nil {
-		fmt.Fprintf(os.Stderr, "nsm: %v\n", err)
-		os.Exit(1)
-	}
-}
 
 // launch unpacks the bundle when its folder is missing, and replaces this process with Nushell.
 func launch(data []byte, id string, args []string) error {
@@ -81,7 +61,7 @@ func launch(data []byte, id string, args []string) error {
 
 // ensureSafeFolder checks the cache folder when it exists. The unpack step creates it otherwise.
 func ensureSafeFolder(root string) error {
-	if _, err := os.Lstat(root); err != nil {
+	if _, err := os.Lstat(root); errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
 
@@ -91,19 +71,21 @@ func ensureSafeFolder(root string) error {
 // withPath puts a folder first on PATH.
 func withPath(env []string, folder string) []string {
 	path := folder
+	result := make([]string, 0, len(env)+1)
 
-	out := make([]string, 0, len(env)+1)
 	for _, entry := range env {
-		if rest, ok := strings.CutPrefix(entry, "PATH="); ok {
-			if rest != "" {
-				path = folder + string(os.PathListSeparator) + rest
-			}
+		rest, found := strings.CutPrefix(entry, "PATH=")
+		if !found {
+			result = append(result, entry)
 			continue
 		}
-		out = append(out, entry)
+
+		if rest != "" {
+			path = folder + string(os.PathListSeparator) + rest
+		}
 	}
 
-	return append(out, "PATH="+path)
+	return append(result, "PATH="+path)
 }
 
 // linkTools makes bin/<tool> a link to the executable, and repairs a link that points elsewhere.
@@ -128,4 +110,18 @@ func linkTools(dir, exe string) error {
 	}
 
 	return nil
+}
+
+func main() {
+	switch filepath.Base(os.Args[0]) {
+	case "setsid":
+		os.Exit(runSetsid(os.Args[1:]))
+	case "timeout":
+		os.Exit(runTimeout(os.Args[1:]))
+	}
+
+	if err := launch(bundle, bundleID, os.Args[1:]); err != nil {
+		fmt.Fprintf(os.Stderr, "nsm: %v\n", err)
+		os.Exit(1)
+	}
 }
