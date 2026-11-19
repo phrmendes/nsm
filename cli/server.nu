@@ -11,8 +11,13 @@ const PLAIN_TIMEOUT = 5
 const ENVIRONMENT_INTERVAL = 200ms
 const HEARTBEAT = 5sec
 
-# Write the process id to the file in $1, then close every file above 2 before `nvim` runs, so the server does not hold the AppImage mount.
-const CLOSE_FDS = 'printf %s $$ > "$1"; shift; for fd in /proc/self/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
+# Write the process id to the file in $1, then close every file above 2 before `nvim` runs, so the server does not hold a file of its parent.
+const CLOSE_FDS = 'printf %s $$ > "$1"; shift; for fd in /dev/fd/*; do fd=${fd##*/}; [ "$fd" -gt 2 ] && eval "exec $fd>&-"; done; exec "$@"'
+
+# Check whether the system is macOS.
+def is-macos []: nothing -> bool {
+    $nu.os-info.name == 'macos'
+}
 
 # Return the file that holds the process id of the launcher of a server.
 def get-pid-file [socket: path]: nothing -> string {
@@ -142,6 +147,15 @@ def open-session [session: record<name: string, path: string, socket: string>]: 
 
 # Check whether a process runs. A zombie waits for its parent and does not run.
 def is-running [pid: int]: nothing -> bool {
+    if (is-macos) {
+        let result = ^ps -o stat= -p $pid | complete
+        let state = $result.stdout | str trim
+
+        return (
+            $result.exit_code == 0 and ($state | is-not-empty) and not ($state | str starts-with 'Z')
+        )
+    }
+
     try {
         (
             open --raw $'/proc/($pid)/stat'
@@ -215,6 +229,10 @@ export def get-environment-command [path: path]: nothing -> list<string> {
 
 # Check whether a server listens on a socket.
 export def is-alive [socket: path]: nothing -> bool {
+    if (is-macos) {
+        return ((^nc -zU -w 1 $socket | complete).exit_code == 0)
+    }
+
     open --raw /proc/net/unix | str contains $' ($socket)(char nl)'
 }
 
@@ -263,8 +281,23 @@ export def get-dirty-sessions [sessions: table<name: string, socket: string>]: n
     | get name
 }
 
+# Return the process id of the line of `ps` text that has the socket as its `--listen` argument, or nothing.
+export def find-pid-in-ps [text: string, socket: path]: nothing -> oneof<int, nothing> {
+    let needle = $' --listen ($socket) '
+
+    $text
+    | lines
+    | where {|line| $'($line) ' | str contains $needle }
+    | each {|line| $line | str trim | split row ' ' | first | into int }
+    | get --optional 0
+}
+
 # Return the process id of the server that listens on a socket, or nothing.
 export def find-server-pid [socket: path]: nothing -> oneof<int, nothing> {
+    if (is-macos) {
+        return (find-pid-in-ps (^ps -axww -o pid=,args= | complete | get stdout) $socket)
+    }
+
     let pids = glob '/proc/[0-9]*/cmdline'
     | where {|file|
         let arguments = try { open --raw $file | split row (char --integer 0) } catch { [] }

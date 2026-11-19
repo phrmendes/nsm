@@ -18,6 +18,7 @@ use ./fixtures.nu [
     write-text
 ]
 use ../../cli/server.nu [
+    find-pid-in-ps
     find-server-pid
     get-restore-args
     has-unsaved-changes
@@ -175,6 +176,45 @@ def "test start-runs-the-server-in-the-project" []: nothing -> nothing {
     }
 }
 
+def "test find-pid-in-ps-matches-only-the-listen-socket" []: nothing -> nothing {
+    let text = [
+        '    1 /sbin/launchd'
+        '  42 nvim --headless --listen /s/a.sock -S /p/Session.vim'
+        '  43 nvim --headless --listen /s/a.sock2'
+        '  44 nvim --headless --listen /s/b.sock'
+    ] | str join (char nl)
+
+    let cases = [
+        {
+            name: 'a socket in the middle of the arguments'
+            socket: /s/a.sock
+            expected: 42
+        }
+        {
+            name: 'a socket that is the prefix of another one'
+            socket: /s/a.sock2
+            expected: 43
+        }
+        {
+            name: 'the last line without a final newline'
+            socket: /s/b.sock
+            expected: 44
+        }
+        {name: 'a socket without a process', socket: /s/c.sock, expected: null}
+        {
+            name: 'a path that only the arguments contain'
+            socket: /p/Session.vim
+            expected: null
+        }
+    ]
+
+    for case in $cases {
+        assert equal (find-pid-in-ps $text $case.socket) $case.expected $case.name
+    }
+
+    assert equal (find-pid-in-ps '' /s/a.sock) null 'empty text has no process'
+}
+
 def "test start-does-not-leak-inherited-files" []: nothing -> nothing {
     in-store {|root|
         let project = $root | path join project
@@ -192,7 +232,12 @@ def "test start-does-not-leak-inherited-files" []: nothing -> nothing {
             # Wait for the end of the startup, while Neovim still opens and closes files.
             nvim --clean --server $socket --remote-expr '1' | complete | ignore
             let pid = find-server-pid $socket
-            let held = ls -l $'/proc/($pid)/fd' | where target == $leak
+            let held = if $nu.os-info.name == 'macos' {
+                ^lsof -p $pid | lines | where {|line| $line | str ends-with $leak }
+            } else {
+                ls -l $'/proc/($pid)/fd' | where target == $leak
+            }
+
             assert equal ($held | length) 0 'the server does not hold a file of its parent'
         }
     }
