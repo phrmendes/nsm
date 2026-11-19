@@ -1,3 +1,9 @@
+## v1.3.2 (2026-11-19)
+
+### Refactoring
+
+- **cli**: print only the version from the main command ([4c3db38](https://github.com/phrmendes/nsm/commit/4c3db386273e35a780f7fcae53b16a2ace3a9acd))
+
 ## v1.3.1 (2026-11-19)
 
 ### Fixes
