@@ -83,9 +83,13 @@ jobs:
       - name: Run the tests
         run: ${{ matrix.command }}
 
-      - name: Check that the build is reproducible
+      - name: Build the release files
         if: matrix.system == 'linux'
-        run: nix build .#nsm-linux-x86_64 .#nsm-darwin-arm64 .#nsm-darwin-x86_64 --no-link && nix build .#nsm-linux-x86_64 .#nsm-darwin-arm64 .#nsm-darwin-x86_64 --no-link --rebuild
+        run: nix build .#nsm-linux-x86_64 .#nsm-darwin-arm64 .#nsm-darwin-x86_64 --no-link
+
+      - name: Rebuild the release files and compare
+        if: matrix.system == 'linux'
+        run: nix build .#nsm-linux-x86_64 .#nsm-darwin-arm64 .#nsm-darwin-x86_64 --no-link --rebuild
 
   release:
     name: Release
