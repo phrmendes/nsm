@@ -18,7 +18,7 @@ export def make-dir [path: path]: nothing -> nothing {
 
 # Run a closure in a temporary directory, and remove the directory also on failure.
 export def in-root [body: closure]: nothing -> nothing {
-    let root = mktemp --directory
+    let root = mktemp --directory | path expand
 
     try {
         do $body $root
