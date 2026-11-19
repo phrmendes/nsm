@@ -682,7 +682,7 @@ T["health"]["reports every tool when they are installed"] = function()
   local reports = child.lua([[
     local dir = vim.fn.tempname()
     vim.fn.mkdir(dir, "p")
-    for _, name in ipairs({ "nsm", "bash", "fzf", "git", "zoxide" }) do
+    for _, name in ipairs({ "nsm", "bash", "git", "zoxide" }) do
       local path = dir .. "/" .. name
       vim.fn.writefile({ "#!/usr/bin/env bash", "exit 0" }, path)
       vim.uv.fs_chmod(path, 493)
@@ -699,8 +699,8 @@ T["health"]["reports every tool when they are installed"] = function()
   eq(reports[2][1], "ok")
   assert(reports[2][2]:find("nsm:") == 1)
   eq(reports[3], { "ok", "Neovim 0.12 :connect: available" })
-  eq(vim.tbl_map(function(report) return report[1] end, vim.list_slice(reports, 4)), { "ok", "ok", "ok", "ok" })
-  eq(#reports, 7)
+  eq(vim.tbl_map(function(report) return report[1] end, vim.list_slice(reports, 4)), { "ok", "ok", "ok" })
+  eq(#reports, 6)
 end
 
 T["health"]["reports missing tools with hints"] = function()
@@ -718,9 +718,8 @@ T["health"]["reports missing tools with hints"] = function()
   assert(reports[2][2]:find("nsm is not available") == 1)
   eq(reports[3][1], "ok")
   eq(reports[4], { "error", "bash is not available" })
-  eq(reports[5], { "warn", "fzf is not available" })
-  eq(reports[6], { "warn", "git is not available" })
-  eq(reports[7], { "warn", "zoxide is not available" })
+  eq(reports[5], { "warn", "git is not available" })
+  eq(reports[6], { "warn", "zoxide is not available" })
 end
 
 T["setup"] = test.new_set()

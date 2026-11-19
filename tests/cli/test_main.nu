@@ -66,30 +66,6 @@ def "test main-last-opens-the-previous-session" []: nothing -> nothing {
     }
 }
 
-def "test main-switch-opens-the-picked-session" []: nothing -> nothing {
-    in-root {|root|
-        let log = $root | path join calls.log
-        let fzf_input = $root | path join fzf.input
-        let project = $root | path join project
-        make-dir $project
-        let bin = make-shims $root
-        let socket = $root | path join nsm alpha.sock
-
-        with-shim-env $root $bin {
-            create-store
-            save-session alpha $project
-
-            let result = with-env {FZF_LOG: ($root | path join fzf.log), FZF_INPUT: $fzf_input, FZF_PICK: '1'} {
-                nu --no-config-file cli/main.nu switch | complete
-            }
-
-            assert equal $result.exit_code 0 $result.stderr
-            assert ((read-file $fzf_input) | str contains 'alpha') 'the picker lists the session'
-            assert equal (read-file $log | lines | last) $'--server ($socket) --remote-ui' 'the picked session opens'
-        }
-    }
-}
-
 def "test main-last-print-prints-the-socket-of-the-previous-session" []: nothing -> nothing {
     in-root {|root|
         let log = $root | path join calls.log

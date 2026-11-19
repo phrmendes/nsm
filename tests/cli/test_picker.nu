@@ -8,14 +8,13 @@ use ./fixtures.nu [
     in-store
     make-dir
     make-file
-    make-fzf-shim
     read-file
     run-tests
     spawn-server
     with-shim-env
     write-text
 ]
-use ../../cli/picker.nu [list-candidates list-projects pick-candidate PREVIEW]
+use ../../cli/picker.nu [get-pick-target list-candidates list-projects pick-candidate]
 use ../../cli/server.nu [find-server-pid]
 use ../../cli/store.nu [create-store get-session save-session]
 
@@ -73,40 +72,27 @@ def "test list-projects-discovers-repositories-under-configured-roots" []: nothi
     }
 }
 
-def "test pick-candidate-returns-the-selected-row" []: nothing -> nothing {
-    in-root {|root|
-        let bin = $root | path join bin
-        let log = $root | path join fzf.args
-        let input = $root | path join fzf.input
-        make-dir $bin
-        make-fzf-shim ($bin | path join fzf)
-
-        with-shim-env $root $bin {
-            create-store
-            save-session alpha $root
-            save-session beta $root
-
-            let candidates = list-candidates --sessions
-            let picked = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_PICK: '2', SHELL: nu} {
-                pick-candidate --sessions
-            }
-
-            let rows = read-file $input | lines
-            assert equal ($rows | length) 2 'fzf receives every candidate'
-            let fields = $rows | each {|row| $row | split row (char tab) }
-            assert equal ($fields | each { length } | uniq) [3] 'each row has a label, a path, and a name'
-            assert equal ($fields | each {|row| {name: $row.2?, path: $row.1?} } | sort-by name) ($candidates | select name path | sort-by name) 'each row carries its path and name'
-
-            assert equal $picked ($fields | get --optional 1 | get --optional 2) 'the second fzf row is returned'
-            assert ((read-file $log) =~ '--with-nth 1') 'fzf shows only the label'
-            assert ((read-file $log) | str contains 'ls -1 {2}') 'fzf previews the path field'
-            assert ((read-file $log) | str contains 'SHELL=/bin/sh') 'fzf runs the preview in a POSIX shell'
-
-            let cancelled = with-env {FZF_LOG: $log, FZF_INPUT: $input, FZF_QUERY: 'zz', FZF_CODE: '1'} {
-                pick-candidate --sessions
-            }
-            assert equal $cancelled null 'a query without a match picks nothing'
+def "test get-pick-target-returns-the-name-or-the-path" []: nothing -> nothing {
+    let cases = [
+        {
+            name: 'a session name wins'
+            row: {name: alpha, path: /p/a}
+            expected: alpha
         }
+        {
+            name: 'an empty name falls back to the path'
+            row: {name: '', path: /p/b}
+            expected: /p/b
+        }
+        {
+            name: 'a null name falls back to the path'
+            row: {name: null, path: /p/c}
+            expected: /p/c
+        }
+    ]
+
+    for case in $cases {
+        assert equal (get-pick-target $case.row) $case.expected $case.name
     }
 }
 
@@ -114,43 +100,35 @@ def "test pick-candidate-reports-an-empty-list" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin
         make-dir $bin
-        make-fzf-shim ($bin | path join fzf)
 
         with-shim-env $root $bin {
             create-store
 
-            let message = with-env {FZF_LOG: ($root | path join fzf.args), FZF_INPUT: ($root | path join fzf.input), FZF_CODE: '1'} {
-                error-message { pick-candidate --sessions }
-            }
+            let message = error-message { pick-candidate --sessions }
 
             assert equal $message 'There is nothing to pick. Start a session with `nsm new <name>`.'
         }
     }
 }
 
-def "test pick-candidate-streams-rows-before-slow-sources-finish" []: nothing -> nothing {
+def "test list-candidates-streams-the-first-row-before-slow-sources-finish" []: nothing -> nothing {
     in-root {|root|
         let bin = $root | path join bin
         let bash = get-bash
         make-dir $bin
         write-text ($bin | path join zoxide) ([$"#!($bash)" 'sleep 3'] | str join (char nl))
-        write-text ($bin | path join fzf) ([
-            $"#!($bash)"
-            'IFS= read -r row'
-            'printf "\\n%s\\n" "$row"'
-        ] | str join (char nl))
-        chmod +x ($bin | path join zoxide) ($bin | path join fzf)
+        chmod +x ($bin | path join zoxide)
 
         with-shim-env $root $bin {
             create-store
             save-session alpha $root
 
             let started = date now
-            let picked = pick-candidate
+            let first = list-candidates | first 1
             let elapsed = (date now) - $started
 
-            assert equal $picked alpha 'the session row reaches fzf first'
-            assert ($elapsed < 1sec) $'fzf got the first row after ($elapsed)'
+            assert equal ($first | get name) [alpha] 'the session row comes first'
+            assert ($elapsed < 1sec) $'the first row took ($elapsed)'
         }
     }
 }
@@ -213,29 +191,6 @@ def "test list-candidates-filters-by-scope" []: nothing -> nothing {
                 assert equal (list-candidates --sessions --scope $inside | get name | sort) [deep inside] 'the argument wins over the variable'
             }
         }
-    }
-}
-
-def "test preview-shows-a-directory-listing" []: nothing -> nothing {
-    in-root {|root|
-        let small = $root | path join small
-        let large = $root | path join large
-        let missing = $root | path join missing
-        make-dir $small
-        make-dir $large
-        make-file ($small | path join alpha.txt)
-        make-file ($small | path join beta.txt)
-        for index in 1..35 {
-            make-file ($large | path join $'file-($index | fill --width 2 --character 0).txt')
-        }
-
-        let run = {|path| sh -c ($PREVIEW | str replace --all '{2}' $"'($path)'") | lines }
-
-        let listing = do $run $small
-        assert equal ($listing | first) $small 'the preview starts with the path'
-        assert equal ($listing | skip 1) [alpha.txt beta.txt] 'the entries follow the path'
-        assert equal (do $run $large | skip 1 | length) 30 'only thirty entries are listed'
-        assert equal (do $run $missing) [$missing '' 'The directory does not exist.']
     }
 }
 

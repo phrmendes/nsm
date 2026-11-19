@@ -3,7 +3,7 @@
 --- Run it with `:checkhealth nsm`. It checks that these are available:
 ---
 --- - `nsm`, `bash`, and Neovim 0.12 `:connect`. A missing one is an error.
---- - `fzf`, `git`, and `zoxide`. A missing one is a warning.
+--- - `git` and `zoxide`. A missing one is a warning.
 ---
 ---@tag nsm-health
 
@@ -25,7 +25,7 @@ local function report(name, value, hint, level)
   h.ok(name .. ": " .. value)
 end
 
---- Check that `nsm`, `bash`, Neovim 0.12, `fzf`, `git`, and `zoxide` are available.
+--- Check that `nsm`, `bash`, Neovim 0.12, `git`, and `zoxide` are available.
 ---
 ---@private
 function health.check()
@@ -39,7 +39,6 @@ function health.check()
     "error"
   )
   report("bash", vim.fn.exepath("bash"), "Install bash to start the servers.", "error")
-  report("fzf", vim.fn.exepath("fzf"), "Install fzf for the terminal picker.", "warn")
   report("git", vim.fn.exepath("git"), "Install git to name a session after its repository root.", "warn")
   report("zoxide", vim.fn.exepath("zoxide"), "Install zoxide to list recent directories.", "warn")
 end

@@ -67,23 +67,6 @@ export def make-setsid-shim [path: path]: nothing -> nothing {
     chmod +x $path
 }
 
-# Create an fzf shim that logs its arguments, saves its input, and prints a row or exits.
-export def make-fzf-shim [path: path]: nothing -> nothing {
-    let bash = get-bash
-    let script = [
-        $"#!($bash)"
-        "printf '%s\\n' \"$*\" > \"$FZF_LOG\""
-        "printf 'SHELL=%s\\n' \"$SHELL\" >> \"$FZF_LOG\""
-        'cat > "$FZF_INPUT"'
-        'printf "%s\\n" "$FZF_QUERY"'
-        'if [ -n "$FZF_CODE" ]; then exit "$FZF_CODE"; fi'
-        'sed -n "${FZF_PICK:-1}p" "$FZF_INPUT"'
-    ] | str join (char nl)
-
-    write-text $path $script
-    chmod +x $path
-}
-
 # Create an empty file, or fail with the reason.
 export def make-file [path: path]: nothing -> nothing {
     try {
@@ -157,13 +140,12 @@ export def finally [cleanup: closure, body: closure]: nothing -> nothing {
     do $cleanup
 }
 
-# Create a bin directory with nvim, setsid, and fzf shims, and return its path.
+# Create a bin directory with nvim and setsid shims, and return its path.
 export def make-shims [root: path]: nothing -> string {
     let bin = $root | path join bin
     make-dir $bin
     make-shim ($bin | path join nvim) --interpreter (get-bash)
     make-setsid-shim ($bin | path join setsid)
-    make-fzf-shim ($bin | path join fzf)
     $bin
 }
 

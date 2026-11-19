@@ -142,13 +142,14 @@
 --- For SSH hosts, use `:connect ssh://<host>`. Neovim lists the hosts of
 --- `~/.ssh/config` in its own menu, installs its own `nvim` on the host, and
 --- copies your config there. To switch projects on that host, install `nsm`
---- with `fzf` and `git` there, then run `:Nsm` inside the remote session.
+--- with `git` there, then run `:Nsm` inside the remote session.
 ---
 --- Requirements ~
 --- *nsm-requirements*
 ---
---- - Linux on x86_64 and Neovim 0.12+
---- - `nsm` on `PATH`: the Nix package and the AppImage bundle Nushell, `fzf`, `setsid`, and `timeout`
+--- - Linux on x86_64 or macOS 14+ (Apple Silicon or Intel), and Neovim 0.12+
+--- - `nsm` on `PATH`: the Nix package, the AppImage, and the macOS tarball bundle Nushell,
+---   `setsid`, and `timeout`
 --- - `bash` on `PATH` to start the server
 --- - `git` on `PATH` to name a session after its repository root
 --- - `zoxide` on `PATH` for recent directories

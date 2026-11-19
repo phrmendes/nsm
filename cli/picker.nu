@@ -6,9 +6,6 @@ use store.nu [list-recent-sessions]
 const PROJECT_DEPTH = 4
 const ZOXIDE_LIMIT = 5
 
-# The shell command that previews the directory in the second field of a row.
-export const PREVIEW = 'if [ -d {2} ]; then printf "%s\\n" {2}; ls -1 {2} | head -30; else printf "%s\\n\\nThe directory does not exist.\\n" {2}; fi'
-
 # Return the icon of a row source, or the directory icon.
 def get-icon [source: string, icons: record<running: string, stored: string, directory: string>]: nothing -> string {
     $icons | get --optional $source | default $icons.directory
@@ -80,54 +77,35 @@ def make-directory-rows [paths: list<string>, source: string, options: record<ic
     | select label name path source
 }
 
-# Pick a row with fzf, and return its session name, its directory, or nothing on cancel.
+# Return the session name of a picker row, or its directory when the row has no session.
+export def get-pick-target [row: record<name: oneof<string, nothing>, path: string>]: nothing -> string {
+    let name = $row.name | default ''
+
+    if ($name | is-empty) {
+        $row.path
+    } else {
+        $name
+    }
+}
+
+# Pick a row with a fuzzy list, and return its session name, its directory, or nothing on cancel.
 export def pick-candidate [--exclude: string = '', --sessions, --scope: string = '']: nothing -> oneof<string, nothing> {
-    if (which fzf | is-empty) {
-        fail 'The picker needs fzf. Install fzf and put it on PATH.'
+    let picked = try {
+        list-candidates --exclude $exclude --sessions=$sessions --scope $scope
+        | input list --fuzzy --display label --no-footer 'nsm> '
+    } catch {|err|
+        if (list-candidates --exclude $exclude --sessions=$sessions --scope $scope | is-empty) {
+            fail 'There is nothing to pick. Start a session with `nsm new <name>`.'
+        }
+
+        error make {msg: $err.msg}
     }
-
-    let format = {|candidate|
-        let label = $candidate.label | str replace --all --regex '[\t\n]' ' '
-        [
-            $label
-            $candidate.path
-            ($candidate.name | default '')
-        ] | str join (char tab)
-    }
-
-    let result = list-candidates --exclude $exclude --sessions=$sessions --scope $scope
-    | each $format
-    | to text
-    | with-env {SHELL: /bin/sh} {
-        fzf --delimiter '\t' --with-nth '1' --preview $PREVIEW --layout reverse --height '50%' --prompt 'nsm> ' --exit-0 --print-query
-    }
-    | complete
-
-    let output = $result.stdout | lines
-
-    if $result.exit_code == 1 and ($output | get --optional 0 | default '' | is-empty) {
-        fail 'There is nothing to pick. Start a session with `nsm new <name>`.'
-    }
-
-    if $result.exit_code != 0 {
-        return null
-    }
-
-    let picked = $output | get --optional 1
 
     if $picked == null {
         return null
     }
 
-    let fields = $picked | split row (char tab)
-
-    let name = $fields | get --optional 2 | default ''
-
-    if ($name | is-empty) {
-        $fields | get 1
-    } else {
-        $name
-    }
+    get-pick-target $picked
 }
 
 # Return the git repositories below the configured project roots.
