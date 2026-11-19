@@ -58,14 +58,12 @@ jobs:
       - name: Set up Nushell
         uses: ./.github/actions/setup-nu
 
-      - name: Bump the version and tag it
-        uses: commitizen-tools/commitizen-action@0.27.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
 
-      - name: Read the new tag
+      - name: Bump the version and tag it
         id: tag
-        run: nu .github/workflows/scripts/read-tag.nu
+        run: nu .github/workflows/scripts/release.nu
 
   publish:
     name: Publish
