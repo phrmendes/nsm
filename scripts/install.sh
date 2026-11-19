@@ -4,10 +4,12 @@
 # Environment:
 #   NSM_BASE_URL     Download base URL (default: the GitHub release of that version)
 #   NSM_INSTALL_DIR  Install directory (default: ~/.local/bin)
+#   NSM_SIGNER       A signer public key for tests. It works only with a file:// base URL.
 
 set -eu
 
 VERSION=latest
+SIGNER='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIARc4eYnYQ/xXijIu+I5HkDEJEQQ5zHWYhOKC64ZIXJs'
 INSTALL_DIR=${NSM_INSTALL_DIR:-$HOME/.local/bin}
 BASE_URL=${NSM_BASE_URL:-}
 
@@ -52,15 +54,32 @@ fi
 temporary=$(mktemp -d)
 trap 'rm -rf "$temporary"' EXIT
 
+case "$BASE_URL" in
+file://*) SIGNER=${NSM_SIGNER:-$SIGNER} ;;
+esac
+
 printf 'nsm: downloading %s\n' "$BASE_URL/$ASSET"
 download "$BASE_URL/$ASSET" "$temporary/$ASSET"
-download "$BASE_URL/$ASSET.sha256" "$temporary/$ASSET.sha256"
+download "$BASE_URL/SHA256SUMS" "$temporary/SHA256SUMS"
+
+if command -v ssh-keygen >/dev/null 2>&1; then
+    download "$BASE_URL/SHA256SUMS.sig" "$temporary/SHA256SUMS.sig"
+    printf 'nsm-release %s\n' "$SIGNER" >"$temporary/signers"
+
+    ssh-keygen -Y verify -f "$temporary/signers" -I nsm-release -n nsm -s "$temporary/SHA256SUMS.sig" \
+        <"$temporary/SHA256SUMS" >/dev/null 2>&1 ||
+        fail 'The signature of the release does not match. Someone may have replaced the files.'
+else
+    note 'ssh-keygen is not on PATH. The signature of the release was not checked.'
+fi
 
 if command -v sha256sum >/dev/null 2>&1; then
     check="sha256sum -c"
 else
     check="shasum -a 256 -c"
 fi
+
+grep " $ASSET\$" "$temporary/SHA256SUMS" >"$temporary/$ASSET.sha256" || fail "SHA256SUMS has no line for $ASSET."
 
 if ! (cd "$temporary" && $check "$ASSET.sha256" >/dev/null 2>&1); then
     fail 'The checksum does not match. The download is broken, or someone replaced it.'

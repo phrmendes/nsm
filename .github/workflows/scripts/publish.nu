@@ -10,8 +10,14 @@ if (gh release view $env.TAG | complete).exit_code == 0 {
 for asset in $ASSETS {
     nix build $'.#($asset)' --out-link result
     cp --force result $asset
-    $'(open --raw $asset | hash sha256)  ($asset)(char nl)' | save --force $'($asset).sha256'
+    $'(open --raw $asset | hash sha256)  ($asset)(char nl)' | save --append SHA256SUMS
 }
+
+let key = mktemp
+$'($env.RELEASE_SIGNING_KEY | str trim)(char nl)' | save --force $key
+chmod 600 $key
+ssh-keygen -Y sign -f $key -n nsm SHA256SUMS
+rm $key
 
 let scripts = $env.CURRENT_FILE | path dirname
 
@@ -27,6 +33,7 @@ nu ($scripts | path join get-notes.nu) | save --force notes.md
         --title $env.TAG
         --notes-file notes.md
         ...$ASSETS
-        ...($ASSETS | each {|asset| $'($asset).sha256' })
+        SHA256SUMS
+        SHA256SUMS.sig
         install.sh
 )

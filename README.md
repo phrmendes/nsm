@@ -45,7 +45,7 @@ For systems without Nix, install the command into `~/.local/bin` with the instal
 curl -fsSL https://github.com/phrmendes/nsm/releases/latest/download/install.sh | sh
 ```
 
-It downloads the file of your system from the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The file bundles Nushell, `setsid` and `timeout`, and unpacks them into your cache folder on the first run (`~/.cache/nsm` on Linux, `~/Library/Caches/nsm` on macOS). You need Neovim, `bash` and `git` on the host. To install another version, put its tag in the URL:
+It downloads the file of your system from the latest release, checks its checksum, and installs it as `~/.local/bin/nsm`. The file bundles Nushell, `setsid` and `timeout`, and unpacks them into your cache folder on the first run (`~/.cache/nsm` on Linux, `~/Library/Caches/nsm` on macOS). You need Neovim, `bash` and `git` on the host. The installer verifies the signature of the release with `ssh-keygen`, which comes with OpenSSH, and it checks the checksum of the file. To install another version, put its tag in the URL:
 
 ```bash
 curl -fsSL https://github.com/phrmendes/nsm/releases/download/vX.Y.Z/install.sh | sh
