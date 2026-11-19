@@ -2,6 +2,16 @@
 
 const IMAGE = 'nsm-x86_64.AppImage'
 
+if (gh release view $env.TAG | complete).exit_code == 0 {
+    print 'The release already exists.'
+    exit 0
+}
+
+nix build '.#nsm-appimage'
+cp result $IMAGE
+
+$'(open --raw $IMAGE | hash sha256)  ($IMAGE)(char nl)' | save --force $'($IMAGE).sha256'
+
 let scripts = $env.CURRENT_FILE | path dirname
 
 with-env {VERSION: ($env.TAG | str replace --regex '^v' '')} {
