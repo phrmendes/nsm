@@ -1,5 +1,29 @@
 #!/usr/bin/env nu
 
+const PRODUCT = [
+    cli/
+    lua/
+    plugin/
+    launcher/
+    nix/
+    flake.nix
+    flake.lock
+    scripts/install.sh
+]
+
+let last = git describe --tags --abbrev=0 | complete
+
+if $last.exit_code == 0 {
+    let product = git diff --name-only $'($last.stdout | str trim)..HEAD'
+    | lines
+    | where {|path| $PRODUCT | any {|prefix| $path | str starts-with $prefix } }
+
+    if ($product | is-empty) {
+        $'name=(char nl)' | save --append $env.GITHUB_OUTPUT
+        exit 0
+    }
+}
+
 let before = open .cz.toml | get tool.commitizen.version
 let bump = nix run --inputs-from . nixpkgs#commitizen -- bump --yes --files-only | complete
 
