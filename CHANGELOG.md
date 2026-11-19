@@ -1,3 +1,9 @@
+## v1.3.1 (2026-11-19)
+
+### Fixes
+
+- **cli**: wake a stopped server before the forced kill ([e6fa6f3](https://github.com/phrmendes/nsm/commit/e6fa6f34d2f4b175183cf8ac15fb12be102bc76b))
+
 ## v1.3.0 (2026-11-19)
 
 ### Features
