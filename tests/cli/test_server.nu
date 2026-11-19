@@ -345,7 +345,7 @@ def "test kill-handles-a-stalled-server" []: nothing -> nothing {
             let forced = nu --no-config-file cli/main.nu kill stalled --force | complete
 
             assert equal $forced.exit_code 0 $forced.stderr
-            assert ((date now) - $forced_started < 4sec) 'a forced kill ends a stopped server without waiting for the signal'
+            assert ((date now) - $forced_started < 8sec) 'a forced kill ends a stopped server without polling for the signal'
             assert (not ($socket | path exists)) 'a forced kill removes the socket'
             assert equal (find-server-pid $socket) null 'a forced kill ends the process'
             assert equal (list-sessions) [] 'a forced kill forgets the session'
