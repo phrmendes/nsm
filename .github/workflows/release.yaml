@@ -114,6 +114,8 @@ jobs:
 
       - name: Bump the version and tag it
         id: tag
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: nu .github/workflows/scripts/release.nu
 
   publish:

@@ -1,9 +1,7 @@
 #!/usr/bin/env nu
 
-git config user.name 'github-actions[bot]'
-git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-
-let bump = nix run --inputs-from . nixpkgs#commitizen -- bump --yes | complete
+let before = open .cz.toml | get tool.commitizen.version
+let bump = nix run --inputs-from . nixpkgs#commitizen -- bump --yes --files-only | complete
 
 if $bump.exit_code == 21 {
     $'name=(char nl)' | save --append $env.GITHUB_OUTPUT
@@ -14,8 +12,37 @@ if $bump.exit_code != 0 {
     error make {msg: $bump.stderr}
 }
 
-let tag = git describe --tags --abbrev=0
+let version = open .cz.toml | get tool.commitizen.version
+let tag = $'v($version)'
+let query = 'mutation($input: CreateCommitOnBranchInput!) { createCommitOnBranch(input: $input) { commit { oid } } }'
 
-git push origin HEAD $tag
+let additions = git diff --name-only
+| lines
+| each {|path| {path: $path, contents: (open --raw $path | encode base64)} }
+
+let variables = {
+    input: {
+        branch: {
+            repositoryNameWithOwner: $env.GITHUB_REPOSITORY
+            branchName: $env.GITHUB_REF_NAME
+        }
+        expectedHeadOid: $env.GITHUB_SHA
+        message: {headline: $'bump: version ($before) → ($version)'}
+        fileChanges: {additions: $additions}
+    }
+}
+
+let created = {query: $query, variables: $variables} | to json | gh api graphql --input - | complete
+
+if $created.exit_code != 0 {
+    error make {msg: $created.stderr}
+}
+
+let oid = $created.stdout | from json | get data.createCommitOnBranch.commit.oid
+let ref = gh api --method POST $'repos/($env.GITHUB_REPOSITORY)/git/refs' --field $'ref=refs/tags/($tag)' --field $'sha=($oid)' | complete
+
+if $ref.exit_code != 0 {
+    error make {msg: $ref.stderr}
+}
 
 $'name=($tag)(char nl)' | save --append $env.GITHUB_OUTPUT
