@@ -18,6 +18,7 @@ use ./fixtures.nu [
     write-text
 ]
 use ../../cli/server.nu [
+    can-connect
     find-pid-in-ps
     find-server-pid
     get-restore-args
@@ -213,6 +214,25 @@ def "test find-pid-in-ps-matches-only-the-listen-socket" []: nothing -> nothing 
     }
 
     assert equal (find-pid-in-ps '' /s/a.sock) null 'empty text has no process'
+}
+
+def "test can-connect-tells-a-listening-socket-from-a-stale-file" []: nothing -> nothing {
+    in-root {|root|
+        let live = $root | path join live.sock
+        let stale = $root | path join stale.sock
+        let missing = $root | path join missing.sock
+        let long = $root | path join (1..200 | each { 'x' } | str join) | $in + '.sock'
+        make-file $stale
+
+        finally {|| stop-server $live} {
+            spawn-server $live
+
+            assert (can-connect $live) 'a listening socket accepts a connection'
+            assert (not (can-connect $stale)) 'a file that is not a socket does not'
+            assert (not (can-connect $missing)) 'a missing path does not'
+            assert (not (can-connect $long)) 'a path that is too long for a socket does not'
+        }
+    }
 }
 
 def "test start-does-not-leak-inherited-files" []: nothing -> nothing {

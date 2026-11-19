@@ -15,6 +15,7 @@
     nu-lint
     nufmt
     nushell
+    perl
     shellcheck
     stylua
     util-linux

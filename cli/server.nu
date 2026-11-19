@@ -227,10 +227,17 @@ export def get-environment-command [path: path]: nothing -> list<string> {
     $loader.command
 }
 
+# Check whether a process accepts connections on a Unix socket.
+export def can-connect [socket: path]: nothing -> bool {
+    let probe = 'socket(my $s, PF_UNIX, SOCK_STREAM, 0) or exit 1; connect($s, sockaddr_un($ARGV[0])) or exit 1'
+
+    (^perl -MSocket -e $probe $socket | complete).exit_code == 0
+}
+
 # Check whether a server listens on a socket.
 export def is-alive [socket: path]: nothing -> bool {
     if (is-macos) {
-        return ((^nc -zU -w 1 $socket | complete).exit_code == 0)
+        return (can-connect $socket)
     }
 
     open --raw /proc/net/unix | str contains $' ($socket)(char nl)'
