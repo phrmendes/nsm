@@ -147,7 +147,7 @@
 --- Requirements ~
 --- *nsm-requirements*
 ---
---- - Linux on x86_64 or macOS 14+ (Apple Silicon or Intel), and Neovim 0.12+
+--- - Linux on x86_64 or macOS 15+ (Apple Silicon or Intel), and Neovim 0.12+
 --- - `nsm` on `PATH`: the Nix package and the release file bundle Nushell,
 ---   `setsid`, and `timeout`
 --- - `bash` on `PATH` to start the server

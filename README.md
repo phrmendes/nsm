@@ -16,7 +16,7 @@ For full documentation, see [`:help nsm`](doc/nsm.txt).
 
 ## Installation
 
-Install the `nsm` command, then the Neovim plugin. The command runs on Linux (x86_64) and on macOS 14 or newer (Apple Silicon and Intel).
+Install the `nsm` command, then the Neovim plugin. The command runs on Linux (x86_64) and on macOS 15 or newer (Apple Silicon and Intel).
 
 ### CLI
 
@@ -159,7 +159,7 @@ nsm completions nu | save --force ~/.config/nushell/nsm.nu  # Nushell: then add 
 
 ## Requirements
 
-- Linux on x86_64, or macOS 14 or newer on Apple Silicon or Intel
+- Linux on x86_64, or macOS 15 or newer on Apple Silicon or Intel
 - Neovim 0.12+
 - The `nsm` command: the Nix package and the release file bundle Nushell, `setsid` and `timeout`
 - `bash` on `PATH` to start the server

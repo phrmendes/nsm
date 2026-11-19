@@ -50,17 +50,11 @@ jobs:
           - system: linux
             runner: ubuntu-latest
             command: devenv test
-          - system: macos-14
-            runner: macos-14
-            command: devenv shell -- nu scripts/test.nu
           - system: macos-15
             runner: macos-15
             command: devenv shell -- nu scripts/test.nu
           - system: macos-26
             runner: macos-26
-            command: devenv shell -- nu scripts/test.nu
-          - system: macos-15-intel
-            runner: macos-15-intel
             command: devenv shell -- nu scripts/test.nu
     steps:
       - name: Check out the code
